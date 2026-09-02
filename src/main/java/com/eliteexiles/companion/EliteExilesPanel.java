@@ -39,6 +39,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.text.DefaultCaret;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.LinkBrowser;
@@ -87,6 +88,8 @@ public class EliteExilesPanel extends PluginPanel
     private final JPanel contentHost = new JPanel(new CardLayout());
     private final Map<String, JPanel> pages = new LinkedHashMap<>();
     private final Map<String, JButton> navButtons = new LinkedHashMap<>();
+    private final Map<String, JScrollPane> pageScrolls = new LinkedHashMap<>();
+    private JScrollPane outerScroll;
 
     private final JPanel home = verticalPanel();
     private final JPanel skills = verticalPanel();
@@ -138,7 +141,9 @@ public class EliteExilesPanel extends PluginPanel
         pages.put("TIPS", tips);
         for (Map.Entry<String, JPanel> entry : pages.entrySet())
         {
-            contentHost.add(scroll(entry.getValue()), entry.getKey());
+            JScrollPane pageScroll = scroll(entry.getValue());
+            pageScrolls.put(entry.getKey(), pageScroll);
+            contentHost.add(pageScroll, entry.getKey());
         }
         contentHost.setOpaque(false);
         contentHost.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -163,15 +168,15 @@ public class EliteExilesPanel extends PluginPanel
         unlinkButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 31));
         root.add(unlinkButton);
 
-        JScrollPane outer = new JScrollPane(root);
-        outer.setBorder(null);
-        outer.getViewport().setBackground(BG);
-        outer.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        outer.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        outer.getVerticalScrollBar().setUnitIncrement(18);
-        outer.getVerticalScrollBar().setBlockIncrement(72);
-        outer.setWheelScrollingEnabled(true);
-        add(outer, BorderLayout.CENTER);
+        outerScroll = new JScrollPane(root);
+        outerScroll.setBorder(null);
+        outerScroll.getViewport().setBackground(BG);
+        outerScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        outerScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        outerScroll.getVerticalScrollBar().setUnitIncrement(18);
+        outerScroll.getVerticalScrollBar().setBlockIncrement(72);
+        outerScroll.setWheelScrollingEnabled(true);
+        add(outerScroll, BorderLayout.CENTER);
 
         joinDiscordButton.addActionListener(e -> LinkBrowser.browse(DISCORD_INVITE_URL));
         linkButton.addActionListener(e -> { if (controller != null) controller.linkFromPanel(linkCode.getText()); });
@@ -184,16 +189,57 @@ public class EliteExilesPanel extends PluginPanel
         selectPage("HOME");
     }
 
+    private void preserveScrollPositions(Runnable update)
+    {
+        int outerPosition = scrollPosition(outerScroll);
+        Map<String, Integer> pagePositions = new LinkedHashMap<>();
+        for (Map.Entry<String, JScrollPane> entry : pageScrolls.entrySet())
+        {
+            pagePositions.put(entry.getKey(), scrollPosition(entry.getValue()));
+        }
+
+        update.run();
+
+        restoreScrollPositions(outerPosition, pagePositions);
+        SwingUtilities.invokeLater(() -> restoreScrollPositions(outerPosition, pagePositions));
+    }
+
+    private void restoreScrollPositions(int outerPosition, Map<String, Integer> pagePositions)
+    {
+        restoreScrollPosition(outerScroll, outerPosition);
+        for (Map.Entry<String, Integer> entry : pagePositions.entrySet())
+        {
+            restoreScrollPosition(pageScrolls.get(entry.getKey()), entry.getValue());
+        }
+    }
+
+    private static int scrollPosition(JScrollPane pane)
+    {
+        return pane == null ? 0 : pane.getVerticalScrollBar().getValue();
+    }
+
+    private static void restoreScrollPosition(JScrollPane pane, int value)
+    {
+        if (pane == null)
+        {
+            return;
+        }
+
+        int max = Math.max(0,
+            pane.getVerticalScrollBar().getMaximum() - pane.getVerticalScrollBar().getVisibleAmount());
+        pane.getVerticalScrollBar().setValue(Math.max(0, Math.min(value, max)));
+    }
+
     private JPanel buildHero()
     {
         GradientCard hero = new GradientCard(new Color(34, 24, 47), new Color(10, 9, 14), GOLD);
-        hero.setLayout(new BorderLayout(9, 0));
+        hero.setLayout(new BorderLayout(7, 0));
         hero.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 9));
         hero.setAlignmentX(Component.LEFT_ALIGNMENT);
         hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, 88));
 
         JLabel crest = new JLabel(new ImageIcon(ImageUtil.loadImageResource(getClass(), "header_logo.png")));
-        crest.setPreferredSize(new Dimension(56, 56));
+        crest.setPreferredSize(new Dimension(50, 50));
         crest.setHorizontalAlignment(SwingConstants.CENTER);
         hero.add(crest, BorderLayout.WEST);
 
@@ -201,7 +247,9 @@ public class EliteExilesPanel extends PluginPanel
         text.setOpaque(false);
         text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
         text.add(label("ELITE EXILES", 17, GOLD_LIGHT, Font.BOLD));
-        text.add(label("PROGRESSION COMPANION", 9, MUTED, Font.BOLD));
+        JLabel subtitle = label("RUNELITE COMPANION", 9, MUTED, Font.BOLD);
+        subtitle.setFont(subtitle.getFont().deriveFont(Font.BOLD, 9.5f));
+        text.add(subtitle);
         text.add(Box.createVerticalStrut(4));
         text.add(connection);
         hero.add(text, BorderLayout.CENTER);
@@ -249,10 +297,10 @@ public class EliteExilesPanel extends PluginPanel
 
     private JPanel buildNavigation()
     {
-        JPanel nav = new JPanel(new GridLayout(2, 4, 4, 4));
+        JPanel nav = new JPanel(new GridLayout(3, 3, 4, 4));
         nav.setOpaque(false);
         nav.setAlignmentX(Component.LEFT_ALIGNMENT);
-        nav.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
+        nav.setMaximumSize(new Dimension(Integer.MAX_VALUE, 96));
         String[] names = {"HOME", "SKILLS", "TODAY", "GOALS", "MISSIONS", "ROADMAP", "TIPS"};
         for (String name : names)
         {
@@ -286,7 +334,7 @@ public class EliteExilesPanel extends PluginPanel
     /** Update purely local, live RuneLite values. No reward logic is run here. */
     public void updateLiveSnapshot(String rsn, long sessionXp, Map<String, Integer> skillLevels)
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             String incomingRsn = rsn == null ? "" : rsn;
             long incomingXp = Math.max(0L, sessionXp);
             if (!incomingRsn.equalsIgnoreCase(liveSessionRsn) || incomingXp < localSessionXp)
@@ -308,7 +356,7 @@ public class EliteExilesPanel extends PluginPanel
                 rebuildUnlinkedProfile();
                 rebuildLocalHome();
             }
-        });
+        }));
     }
 
     public void setLocalRsn(String name)
@@ -318,7 +366,7 @@ public class EliteExilesPanel extends PluginPanel
 
     public void setLocalMode()
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             lastDashboard = null;
             connection.setText("LOCAL MODE");
             connection.setForeground(GREEN);
@@ -341,31 +389,31 @@ public class EliteExilesPanel extends PluginPanel
             clearPanel(missions, "Optional Coach Integration is off. Enable it in the plugin settings to use synced missions.");
             clearPanel(roadmap, "Optional Coach Integration is off. Enable it in the plugin settings to use the coach roadmap.");
             clearPanel(tips, "Optional Coach Integration is off. Enable it in the plugin settings to use coach suggestions.");
-        });
+        }));
     }
 
     public void setBusy(String text)
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             connection.setText(shortText(text, 24));
             connection.setForeground(GOLD_LIGHT);
             statusDetail.setText(text == null ? "" : text);
-        });
+        }));
     }
 
     public void setError(String message)
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             connection.setText("ACTION NEEDED");
             connection.setForeground(ORANGE);
             statusDetail.setText(message == null ? "Unknown coach error." : message);
             statusDetail.setForeground(ORANGE);
-        });
+        }));
     }
 
     public void setDisconnected(String message)
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             lastDashboard = null;
             connection.setText("COACH NOT LINKED");
             connection.setForeground(GOLD_LIGHT);
@@ -388,12 +436,12 @@ public class EliteExilesPanel extends PluginPanel
             clearPanel(missions, "Link the optional Discord Coach to load synced missions.");
             clearPanel(roadmap, "Link the optional Discord Coach to load your NOW → NEXT → LATER roadmap.");
             clearPanel(tips, "Link the optional Discord Coach to load coach suggestions.");
-        });
+        }));
     }
 
     public void updateDashboard(JsonObject response)
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             JsonObject d = response.has("dashboard") && response.get("dashboard").isJsonObject()
                 ? response.getAsJsonObject("dashboard") : response;
             if (d == null || !d.has("member"))
@@ -434,13 +482,13 @@ public class EliteExilesPanel extends PluginPanel
             for (JsonElement e : array(missionObj, "weekly")) missionRows.add(e);
             rebuildTasks(missions, missionRows, BLUE, "No missions generated yet. Run a verified check-in.", "DISCORD MISSION");
             rebuildTips(tips, array(object(d, "coach"), "recommendations"));
-        });
+        }));
     }
 
     public void showCheckinResult(JsonObject response)
     {
         updateDashboard(response);
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             int g = array(response, "completedGoals").size();
             int m = array(response, "completedMissions").size();
             connection.setText(g + m > 0 ? "CHECK-IN VERIFIED" : "CHECK-IN COMPLETE");
@@ -449,12 +497,12 @@ public class EliteExilesPanel extends PluginPanel
                 ? (g + m) + " verified completion" + (g + m == 1 ? "" : "s") + " detected. Discord progression was refreshed."
                 : "Jagex verification completed. No new rewarded completions were detected.");
             statusDetail.setForeground(GREEN);
-        });
+        }));
     }
 
     public void showDiagnosticsResult(String bridgeId, int protocol, long elapsedMs)
     {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> preserveScrollPositions(() -> {
             connection.setText("DIAGNOSTICS PASS");
             connection.setForeground(GREEN);
             statusDetail.setText(
@@ -463,7 +511,7 @@ public class EliteExilesPanel extends PluginPanel
                     + " • HTTPS/auth/GET/POST/JSON/RSN checks OK"
                     + " • " + Math.max(0L, elapsedMs) + " ms. No points, goals, missions, registrations, or Discord settings were changed.");
             statusDetail.setForeground(GREEN);
-        });
+        }));
     }
 
     private void rebuildUnlinkedProfile()
@@ -559,18 +607,18 @@ public class EliteExilesPanel extends PluginPanel
         JPanel row = new JPanel(new BorderLayout(7, 0));
         row.setOpaque(false);
         RankEmblem emblem = new RankEmblem(str(r, "name", "Recruit"), GOLD);
-        emblem.setPreferredSize(new Dimension(54, 56));
+        emblem.setPreferredSize(new Dimension(46, 54));
         row.add(emblem, BorderLayout.WEST);
         JPanel identity = new JPanel();
         identity.setOpaque(false);
         identity.setLayout(new BoxLayout(identity, BoxLayout.Y_AXIS));
-        identity.add(label(str(member, "rsn", localRsn.isBlank() ? "Unknown" : localRsn), 17, WHITE, Font.BOLD));
+        identity.add(label(str(member, "rsn", localRsn.isBlank() ? "Unknown" : localRsn), 15, WHITE, Font.BOLD));
         identity.add(label(str(member, "mode", "main").toUpperCase() + " • " + str(c, "stage", "learning").toUpperCase(), 9, MUTED, Font.BOLD));
         identity.add(Box.createVerticalStrut(3));
         identity.add(label(str(r, "name", "Recruit").toUpperCase(), 9, GOLD_LIGHT, Font.BOLD));
         row.add(identity, BorderLayout.CENTER);
         RingMeter coverage = new RingMeter(integer(c, "coveragePercent", 0), BLUE, "DATA");
-        coverage.setPreferredSize(new Dimension(54, 54));
+        coverage.setPreferredSize(new Dimension(46, 54));
         row.add(coverage, BorderLayout.EAST);
         card.add(row);
         card.add(Box.createVerticalStrut(8));
@@ -618,7 +666,7 @@ public class EliteExilesPanel extends PluginPanel
         JsonObject missionObj = object(d, "missions");
         int missionCount = array(missionObj, "daily").size() + array(missionObj, "weekly").size();
 
-        home.add(sectionTitle("ACCOUNT DASHBOARD", "LIVE + COACH"));
+        home.add(sectionTitle("ACCOUNT DASHBOARD", "SYNCED"));
         home.add(Box.createVerticalStrut(5));
 
         JPanel stats = new JPanel(new GridLayout(2, 2, 5, 5));
@@ -635,15 +683,15 @@ public class EliteExilesPanel extends PluginPanel
         JPanel momentum = roundedCard(GOLD);
         momentum.setLayout(new BorderLayout(7, 0));
         MomentumBadge badge = new MomentumBadge(goalRows.size(), missionCount, integer(rank, "percent", 0));
-        badge.setPreferredSize(new Dimension(62, 62));
+        badge.setPreferredSize(new Dimension(54, 62));
         momentum.add(badge, BorderLayout.WEST);
         JPanel mText = new JPanel();
         mText.setOpaque(false);
         mText.setLayout(new BoxLayout(mText, BoxLayout.Y_AXIS));
-        mText.add(sourcePill("PROGRESSION PULSE", GOLD));
+        mText.add(sourcePill("PROGRESS", GOLD));
         mText.add(Box.createVerticalStrut(4));
-        mText.add(label(goalRows.size() + " goals  •  " + missionCount + " missions", 10, WHITE, Font.BOLD));
-        mText.add(label(integer(rank, "percent", 0) + "% toward next EE rank", 9, MUTED, Font.PLAIN));
+        mText.add(label(goalRows.size() + (goalRows.size() == 1 ? " goal" : " goals") + "  •  " + missionCount + (missionCount == 1 ? " mission" : " missions"), 9, WHITE, Font.BOLD));
+        mText.add(label(integer(rank, "percent", 0) + "% to next rank", 9, MUTED, Font.PLAIN));
         momentum.add(mText, BorderLayout.CENTER);
         home.add(momentum);
         home.add(Box.createVerticalStrut(8));
@@ -659,7 +707,7 @@ public class EliteExilesPanel extends PluginPanel
         home.add(session);
         home.add(Box.createVerticalStrut(8));
 
-        home.add(sectionTitle("ACCOUNT READINESS", "COACH MODEL"));
+        home.add(sectionTitle("ACCOUNT READINESS", "COACH"));
         home.add(Box.createVerticalStrut(5));
         JPanel rings = new JPanel(new GridLayout(1, 4, 3, 0));
         rings.setOpaque(false);
@@ -668,7 +716,7 @@ public class EliteExilesPanel extends PluginPanel
         rings.add(new RingMeter(integer(readiness, "skilling", 0), GREEN, "SKL"));
         rings.add(new RingMeter(integer(readiness, "pvm", 0), GOLD, "PVM"));
         rings.add(new RingMeter(integer(readiness, "pvp", 0), BLUE, "PVP"));
-        rings.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
+        rings.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
         home.add(rings);
         home.add(Box.createVerticalStrut(8));
 
@@ -907,7 +955,7 @@ public class EliteExilesPanel extends PluginPanel
     private static JLabel sourcePill(String text, Color accent)
     {
         PillLabel l = new PillLabel(text, accent);
-        l.setFont(l.getFont().deriveFont(Font.BOLD, 9.5f));
+        l.setFont(l.getFont().deriveFont(Font.BOLD, 10f));
         l.setForeground(accent);
         l.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         return l;
@@ -916,7 +964,7 @@ public class EliteExilesPanel extends PluginPanel
     private static JButton navButton(String text)
     {
         JButton b = new JButton(text);
-        b.setFont(b.getFont().deriveFont(Font.BOLD, 9.5f));
+        b.setFont(b.getFont().deriveFont(Font.BOLD, 10.5f));
         b.setForeground(MUTED);
         b.setBackground(PANEL_2);
         b.setFocusPainted(false);
@@ -986,6 +1034,11 @@ public class EliteExilesPanel extends PluginPanel
         a.setMargin(new Insets(0, 0, 0, 0));
         a.setAlignmentX(Component.LEFT_ALIGNMENT);
         a.setColumns(1);
+        if (a.getCaret() instanceof DefaultCaret)
+        {
+            ((DefaultCaret) a.getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+        }
+        a.setCaretPosition(0);
         a.setMinimumSize(new Dimension(0, 16));
         a.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1000));
         return a;
@@ -1213,7 +1266,7 @@ public class EliteExilesPanel extends PluginPanel
                 int fill = (int) Math.round(w * (value / 100.0));
                 g2.setColor(accent);
                 g2.fillRoundRect(0, 2, Math.max(0, fill), Math.max(1, h - 4), h, h);
-                g2.setFont(getFont().deriveFont(Font.BOLD, 8f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, 9.5f));
                 FontMetrics fm = g2.getFontMetrics();
                 String text = caption.isEmpty() ? value + "%" : caption;
                 int x = Math.max(3, (w - fm.stringWidth(text)) / 2);
@@ -1235,8 +1288,8 @@ public class EliteExilesPanel extends PluginPanel
             this.value = Math.max(0, Math.min(100, value));
             this.accent = accent;
             this.label = label;
-            setPreferredSize(new Dimension(48, 58));
-            setMinimumSize(new Dimension(40, 52));
+            setPreferredSize(new Dimension(48, 64));
+            setMinimumSize(new Dimension(40, 60));
         }
         @Override protected void paintComponent(Graphics g)
         {
@@ -1244,7 +1297,7 @@ public class EliteExilesPanel extends PluginPanel
             try
             {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int diameter = Math.min(getWidth() - 6, getHeight() - 16);
+                int diameter = Math.min(getWidth() - 6, getHeight() - 20);
                 int x = (getWidth() - diameter) / 2;
                 int y = 1;
                 g2.setStroke(new BasicStroke(4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -1252,15 +1305,15 @@ public class EliteExilesPanel extends PluginPanel
                 g2.draw(new Arc2D.Float(x, y, diameter, diameter, 90, -360, Arc2D.OPEN));
                 g2.setColor(accent);
                 g2.draw(new Arc2D.Float(x, y, diameter, diameter, 90, -(360f * value / 100f), Arc2D.OPEN));
-                g2.setFont(getFont().deriveFont(Font.BOLD, 10f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, 11f));
                 String pct = value + "%";
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(WHITE);
                 g2.drawString(pct, (getWidth() - fm.stringWidth(pct)) / 2, y + diameter / 2 + fm.getAscent() / 3);
-                g2.setFont(getFont().deriveFont(Font.BOLD, 7f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, 9f));
                 fm = g2.getFontMetrics();
                 g2.setColor(MUTED);
-                g2.drawString(label, (getWidth() - fm.stringWidth(label)) / 2, getHeight() - 2);
+                g2.drawString(label, (getWidth() - fm.stringWidth(label)) / 2, getHeight() - 3);
             }
             finally { g2.dispose(); }
         }
@@ -1271,19 +1324,19 @@ public class EliteExilesPanel extends PluginPanel
         MetricTile(String title, String value, String glyph, Color accent)
         {
             super(PANEL, accent);
-            setBorder(BorderFactory.createEmptyBorder(7, 7, 7, 7));
-            setLayout(new BorderLayout(6, 0));
+            setBorder(BorderFactory.createEmptyBorder(6, 5, 6, 5));
+            setLayout(new BorderLayout(4, 0));
             setAlignmentX(Component.LEFT_ALIGNMENT);
 
             MetricGlyph icon = new MetricGlyph(glyph, accent);
-            icon.setPreferredSize(new Dimension(31, 31));
+            icon.setPreferredSize(new Dimension(27, 31));
             add(icon, BorderLayout.WEST);
 
             JPanel text = new JPanel();
             text.setOpaque(false);
             text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
             text.add(label(title, 7, MUTED, Font.BOLD));
-            text.add(label(value, 16, WHITE, Font.BOLD));
+            text.add(label(value, 13, WHITE, Font.BOLD));
             add(text, BorderLayout.CENTER);
         }
     }
@@ -1307,7 +1360,7 @@ public class EliteExilesPanel extends PluginPanel
                 g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 150));
                 g2.setStroke(new BasicStroke(1.4f));
                 g2.drawOval(x, y, s, s);
-                g2.setFont(getFont().deriveFont(Font.BOLD, glyph.length() > 2 ? 7f : 8f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, glyph.length() > 2 ? 9f : 9.5f));
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(accent);
                 g2.drawString(glyph, x + (s - fm.stringWidth(glyph)) / 2, y + s / 2 + fm.getAscent() / 3);
@@ -1381,7 +1434,7 @@ public class EliteExilesPanel extends PluginPanel
                 g2.setColor(accent);
                 g2.draw(new Arc2D.Float(x + 2, y + 2, s - 4, s - 4, 90, -(360f * pct / 100f), Arc2D.OPEN));
                 String t = level <= 0 ? "-" : String.valueOf(level);
-                g2.setFont(getFont().deriveFont(Font.BOLD, t.length() > 2 ? 8f : 9f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, t.length() > 2 ? 9f : 9.5f));
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(WHITE);
                 g2.drawString(t, x + (s - fm.stringWidth(t)) / 2, y + s / 2 + fm.getAscent() / 3);
@@ -1507,7 +1560,7 @@ public class EliteExilesPanel extends PluginPanel
 
                 String shortRank = rankShort(rank);
                 Font baseFont = getFont() == null ? new Font(Font.SANS_SERIF, Font.PLAIN, 12) : getFont();
-                g2.setFont(baseFont.deriveFont(Font.BOLD, 7.5f));
+                g2.setFont(baseFont.deriveFont(Font.BOLD, 9f));
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(MUTED);
                 g2.drawString(shortRank, Math.max(3, cx - fm.stringWidth(shortRank) / 2), h - 7);
@@ -1599,7 +1652,7 @@ public class EliteExilesPanel extends PluginPanel
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(WHITE);
                 g2.drawString(value, x + (d - fm.stringWidth(value)) / 2, y + d / 2 + fm.getAscent() / 3);
-                g2.setFont(getFont().deriveFont(Font.BOLD, 6.5f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, 9f));
                 String txt = "ACTIVE";
                 fm = g2.getFontMetrics();
                 g2.setColor(MUTED);
@@ -1729,7 +1782,7 @@ public class EliteExilesPanel extends PluginPanel
                 g2.setStroke(new BasicStroke(primary ? 2f : 1.2f));
                 g2.drawOval(cx - 12, 4, 24, 24);
                 String n = String.valueOf(step);
-                g2.setFont(getFont().deriveFont(Font.BOLD, 10f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, 11f));
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(WHITE);
                 g2.drawString(n, cx - fm.stringWidth(n) / 2, 20);
@@ -1762,7 +1815,7 @@ public class EliteExilesPanel extends PluginPanel
             if (description != null && !description.isBlank())
             {
                 body.add(Box.createVerticalStrut(3));
-                body.add(wrap(description, MUTED, 8));
+                body.add(wrap(description, MUTED, 9));
             }
             add(body, BorderLayout.CENTER);
         }
@@ -1778,7 +1831,7 @@ public class EliteExilesPanel extends PluginPanel
             JPanel header = new JPanel(new BorderLayout(4, 0));
             header.setOpaque(false);
             header.add(sourcePill(name, accent), BorderLayout.WEST);
-            header.add(label(name.equals("NOW") ? "DO THIS FIRST" : name.equals("NEXT") ? "QUEUE" : "LONG TERM", 7, MUTED, Font.BOLD), BorderLayout.EAST);
+            header.add(label(name.equals("NOW") ? "FIRST" : name.equals("NEXT") ? "QUEUE" : "LATER", 9, MUTED, Font.BOLD), BorderLayout.EAST);
             add(header);
             add(Box.createVerticalStrut(6));
             if (rows.size() == 0)
@@ -1808,7 +1861,7 @@ public class EliteExilesPanel extends PluginPanel
             node.setOpaque(true);
             node.setBackground(first ? accent : PANEL_3);
             node.setForeground(first ? BG : accent);
-            node.setFont(node.getFont().deriveFont(Font.BOLD, 8f));
+            node.setFont(node.getFont().deriveFont(Font.BOLD, 9f));
             node.setBorder(BorderFactory.createLineBorder(accent.darker()));
             node.setPreferredSize(new Dimension(22, 22));
             add(node, BorderLayout.WEST);
@@ -1839,7 +1892,7 @@ public class EliteExilesPanel extends PluginPanel
             text.setOpaque(false);
             text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
             text.add(label(shortText(title, 31), 11, WHITE, Font.BOLD));
-            text.add(label(tag.toUpperCase(), 8, MUTED, Font.BOLD));
+            text.add(label(tag.toUpperCase(), 9, MUTED, Font.BOLD));
             center.add(text, BorderLayout.CENTER);
             add(center);
             add(Box.createVerticalStrut(5));
@@ -1898,7 +1951,7 @@ public class EliteExilesPanel extends PluginPanel
             JPanel top = new JPanel(new BorderLayout(4, 0));
             top.setOpaque(false);
             top.add(sourcePill(confidence.toUpperCase(), accent), BorderLayout.WEST);
-            top.add(label("#" + index, 8, MUTED, Font.BOLD), BorderLayout.EAST);
+            top.add(label("#" + index, 9, MUTED, Font.BOLD), BorderLayout.EAST);
             body.add(top);
             body.add(Box.createVerticalStrut(4));
             body.add(label(shortText(title, 28), 11, WHITE, Font.BOLD));
@@ -1910,7 +1963,7 @@ public class EliteExilesPanel extends PluginPanel
             if (tip != null && !tip.isBlank())
             {
                 body.add(Box.createVerticalStrut(4));
-                body.add(wrap("TIP  " + tip, MUTED, 8));
+                body.add(wrap("TIP  " + tip, MUTED, 9));
             }
             add(body, BorderLayout.CENTER);
         }
@@ -1934,7 +1987,7 @@ public class EliteExilesPanel extends PluginPanel
                 g2.fillRoundRect(x, y, s, s, 8, 8);
                 g2.setColor(accent);
                 g2.drawRoundRect(x, y, s, s, 8, 8);
-                g2.setFont(getFont().deriveFont(Font.BOLD, text.length() > 3 ? 7f : 8f));
+                g2.setFont(getFont().deriveFont(Font.BOLD, text.length() > 3 ? 9f : 9.5f));
                 FontMetrics fm = g2.getFontMetrics();
                 g2.setColor(WHITE);
                 g2.drawString(text, x + (s - fm.stringWidth(text)) / 2, y + s / 2 + fm.getAscent() / 3);
