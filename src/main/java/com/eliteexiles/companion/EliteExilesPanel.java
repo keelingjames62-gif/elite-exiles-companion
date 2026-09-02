@@ -29,6 +29,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.ImageIcon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -39,6 +40,8 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.LinkBrowser;
 
 /**
  * Narrow-sidebar graphical UI for the Elite Exiles RuneLite Companion.
@@ -50,28 +53,33 @@ import net.runelite.client.ui.PluginPanel;
  */
 public class EliteExilesPanel extends PluginPanel
 {
-    private static final Color BG = new Color(7, 9, 13);
-    private static final Color PANEL = new Color(16, 20, 27);
-    private static final Color PANEL_2 = new Color(22, 27, 35);
-    private static final Color PANEL_3 = new Color(29, 34, 43);
-    private static final Color BORDER = new Color(50, 56, 68);
-    private static final Color GOLD = new Color(218, 177, 61);
-    private static final Color GOLD_LIGHT = new Color(247, 220, 133);
-    private static final Color RED = new Color(151, 39, 47);
-    private static final Color GREEN = new Color(68, 199, 122);
-    private static final Color BLUE = new Color(82, 148, 246);
-    private static final Color ORANGE = new Color(229, 157, 69);
-    private static final Color WHITE = new Color(245, 242, 232);
-    private static final Color MUTED = new Color(198, 202, 212);
+    private static final String DISCORD_INVITE_URL = "https://discord.gg/FTJhv48K2";
+    // Current Elite Exiles branding: black / purple / silver.
+    // Legacy constant names are retained to keep this UI-only diff narrow and reviewable.
+    private static final Color BG = new Color(8, 7, 12);
+    private static final Color PANEL = new Color(17, 15, 23);
+    private static final Color PANEL_2 = new Color(25, 22, 33);
+    private static final Color PANEL_3 = new Color(34, 30, 45);
+    private static final Color BORDER = new Color(76, 70, 91);
+    private static final Color GOLD = new Color(142, 82, 214);
+    private static final Color GOLD_LIGHT = new Color(221, 216, 230);
+    private static final Color RED = new Color(171, 67, 91);
+    private static final Color GREEN = new Color(72, 194, 126);
+    private static final Color BLUE = new Color(124, 92, 196);
+    private static final Color ORANGE = new Color(204, 145, 79);
+    private static final Color WHITE = new Color(242, 240, 246);
+    private static final Color MUTED = new Color(184, 180, 194);
 
     private EliteExilesCompanionPlugin controller;
 
     private final JLabel connection = label("LOCAL MODE", 11, GREEN, Font.BOLD);
     private final JTextArea statusDetail = wrap("Optional Coach Integration is disabled.", MUTED, 11);
     private final JTextField linkCode = new JTextField();
+    private final JButton joinDiscordButton = actionButton("JOIN ELITE EXILES DISCORD", GOLD);
     private final JButton linkButton = actionButton("LINK COACH", GOLD);
     private final JButton refreshButton = actionButton("REFRESH", GOLD);
     private final JButton checkinButton = actionButton("CHECK-IN", GREEN);
+    private final JButton diagnosticsButton = actionButton("RUN SAFE DIAGNOSTICS", BLUE);
     private final JButton unlinkButton = actionButton("UNLINK", RED);
 
     private final JPanel linkCard = roundedCard(GOLD);
@@ -147,6 +155,10 @@ public class EliteExilesPanel extends PluginPanel
         actionRow.add(checkinButton);
         root.add(actionRow);
         root.add(Box.createVerticalStrut(5));
+        diagnosticsButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        diagnosticsButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 31));
+        root.add(diagnosticsButton);
+        root.add(Box.createVerticalStrut(5));
         unlinkButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         unlinkButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 31));
         root.add(unlinkButton);
@@ -161,9 +173,11 @@ public class EliteExilesPanel extends PluginPanel
         outer.setWheelScrollingEnabled(true);
         add(outer, BorderLayout.CENTER);
 
+        joinDiscordButton.addActionListener(e -> LinkBrowser.browse(DISCORD_INVITE_URL));
         linkButton.addActionListener(e -> { if (controller != null) controller.linkFromPanel(linkCode.getText()); });
         refreshButton.addActionListener(e -> { if (controller != null) controller.refreshCoachFromPanel(); });
         checkinButton.addActionListener(e -> { if (controller != null) controller.checkInFromPanel(); });
+        diagnosticsButton.addActionListener(e -> { if (controller != null) controller.runDiagnosticsFromPanel(); });
         unlinkButton.addActionListener(e -> { if (controller != null) controller.unlinkFromPanel(); });
 
         setLocalMode();
@@ -172,21 +186,22 @@ public class EliteExilesPanel extends PluginPanel
 
     private JPanel buildHero()
     {
-        GradientCard hero = new GradientCard(new Color(26, 22, 15), new Color(12, 15, 21), GOLD);
-        hero.setLayout(new BorderLayout(8, 0));
-        hero.setBorder(BorderFactory.createEmptyBorder(9, 9, 9, 9));
+        GradientCard hero = new GradientCard(new Color(34, 24, 47), new Color(10, 9, 14), GOLD);
+        hero.setLayout(new BorderLayout(9, 0));
+        hero.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 9));
         hero.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, 92));
+        hero.setMaximumSize(new Dimension(Integer.MAX_VALUE, 88));
 
-        Crest crest = new Crest();
-        crest.setPreferredSize(new Dimension(48, 48));
+        JLabel crest = new JLabel(new ImageIcon(ImageUtil.loadImageResource(getClass(), "header_logo.png")));
+        crest.setPreferredSize(new Dimension(56, 56));
+        crest.setHorizontalAlignment(SwingConstants.CENTER);
         hero.add(crest, BorderLayout.WEST);
 
         JPanel text = new JPanel();
         text.setOpaque(false);
         text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
         text.add(label("ELITE EXILES", 17, GOLD_LIGHT, Font.BOLD));
-        text.add(label("PROGRESSION COMPANION", 10, MUTED, Font.BOLD));
+        text.add(label("PROGRESSION COMPANION", 9, MUTED, Font.BOLD));
         text.add(Box.createVerticalStrut(4));
         text.add(connection);
         hero.add(text, BorderLayout.CENTER);
@@ -196,24 +211,37 @@ public class EliteExilesPanel extends PluginPanel
     private void buildLinkCard()
     {
         linkCard.setLayout(new BoxLayout(linkCard, BoxLayout.Y_AXIS));
-        linkCard.add(sourcePill("OPTIONAL COACH LINK", GOLD));
+        linkCard.add(sourcePill("DISCORD COACH • OPTIONAL", GOLD));
         linkCard.add(Box.createVerticalStrut(6));
-        linkCard.add(wrap("Coach Integration is opt-in.\n1  Run /runelitelink in Elite Exiles Discord\n2  Paste the one-time code below\n3  Link while logged into the same RSN", WHITE, 11));
+        linkCard.add(wrap("New to Elite Exiles? Join the Discord first. Already a member? Run /runelitelink to get your one-time code.", MUTED, 10));
+        linkCard.add(Box.createVerticalStrut(6));
+
+        joinDiscordButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        joinDiscordButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        joinDiscordButton.setToolTipText("Open the official Elite Exiles Discord invite in your browser");
+        linkCard.add(joinDiscordButton);
+
+        linkCard.add(Box.createVerticalStrut(8));
+        linkCard.add(wrap("1  Run /runelitelink in Discord\n2  Paste the 8-character code below\n3  Link while logged into the same OSRS character", WHITE, 10));
         linkCard.add(Box.createVerticalStrut(7));
+
         linkCode.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         linkCode.setBackground(PANEL_3);
         linkCode.setForeground(WHITE);
         linkCode.setCaretColor(WHITE);
         linkCode.setHorizontalAlignment(SwingConstants.CENTER);
         linkCode.setFont(linkCode.getFont().deriveFont(Font.BOLD, 14f));
+        linkCode.setToolTipText("Paste the one-time /runelitelink code from Elite Exiles Discord");
         linkCode.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(GOLD.darker()),
+            BorderFactory.createLineBorder(GOLD),
             BorderFactory.createEmptyBorder(4, 6, 4, 6)));
         linkCard.add(linkCode);
+
         linkCard.add(Box.createVerticalStrut(6));
         linkButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         linkButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         linkCard.add(linkButton);
+
         linkCard.add(Box.createVerticalStrut(6));
         statusDetail.setAlignmentX(Component.LEFT_ALIGNMENT);
         linkCard.add(statusDetail);
@@ -299,9 +327,11 @@ public class EliteExilesPanel extends PluginPanel
             linkCard.setVisible(false);
             refreshButton.setVisible(false);
             checkinButton.setVisible(false);
+            diagnosticsButton.setVisible(false);
             unlinkButton.setVisible(false);
             refreshButton.setEnabled(false);
             checkinButton.setEnabled(false);
+            diagnosticsButton.setEnabled(false);
             unlinkButton.setEnabled(false);
             rebuildUnlinkedProfile();
             rebuildLocalHome();
@@ -344,9 +374,11 @@ public class EliteExilesPanel extends PluginPanel
             linkCard.setVisible(true);
             refreshButton.setVisible(true);
             checkinButton.setVisible(true);
+            diagnosticsButton.setVisible(true);
             unlinkButton.setVisible(true);
             refreshButton.setEnabled(false);
             checkinButton.setEnabled(false);
+            diagnosticsButton.setEnabled(false);
             unlinkButton.setEnabled(false);
             rebuildUnlinkedProfile();
             rebuildLocalHome();
@@ -383,9 +415,11 @@ public class EliteExilesPanel extends PluginPanel
             linkCard.setVisible(false);
             refreshButton.setVisible(true);
             checkinButton.setVisible(true);
+            diagnosticsButton.setVisible(true);
             unlinkButton.setVisible(true);
             refreshButton.setEnabled(true);
             checkinButton.setEnabled(true);
+            diagnosticsButton.setEnabled(true);
             unlinkButton.setEnabled(true);
 
             rebuildProfile(d, fresh);
@@ -414,6 +448,20 @@ public class EliteExilesPanel extends PluginPanel
             statusDetail.setText(g + m > 0
                 ? (g + m) + " verified completion" + (g + m == 1 ? "" : "s") + " detected. Discord progression was refreshed."
                 : "Jagex verification completed. No new rewarded completions were detected.");
+            statusDetail.setForeground(GREEN);
+        });
+    }
+
+    public void showDiagnosticsResult(String bridgeId, int protocol, long elapsedMs)
+    {
+        SwingUtilities.invokeLater(() -> {
+            connection.setText("DIAGNOSTICS PASS");
+            connection.setForeground(GREEN);
+            statusDetail.setText(
+                "Safe read-only diagnostics passed. Bridge " + shortText(bridgeId, 16)
+                    + " • protocol " + protocol
+                    + " • HTTPS/auth/GET/POST/JSON/RSN checks OK"
+                    + " • " + Math.max(0L, elapsedMs) + " ms. No points, goals, missions, registrations, or Discord settings were changed.");
             statusDetail.setForeground(GREEN);
         });
     }
@@ -511,7 +559,7 @@ public class EliteExilesPanel extends PluginPanel
         JPanel row = new JPanel(new BorderLayout(7, 0));
         row.setOpaque(false);
         RankEmblem emblem = new RankEmblem(str(r, "name", "Recruit"), GOLD);
-        emblem.setPreferredSize(new Dimension(48, 54));
+        emblem.setPreferredSize(new Dimension(54, 56));
         row.add(emblem, BorderLayout.WEST);
         JPanel identity = new JPanel();
         identity.setOpaque(false);
@@ -1113,34 +1161,6 @@ public class EliteExilesPanel extends PluginPanel
         }
     }
 
-    private static final class Crest extends JComponent
-    {
-        @Override protected void paintComponent(Graphics g)
-        {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try
-            {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int s = Math.min(getWidth(), getHeight()) - 4;
-                int x = (getWidth() - s) / 2;
-                int y = (getHeight() - s) / 2;
-                g2.setColor(new Color(6, 7, 10));
-                g2.fillOval(x, y, s, s);
-                g2.setColor(GOLD);
-                g2.setStroke(new BasicStroke(2f));
-                g2.drawOval(x, y, s, s);
-                g2.setFont(getFont().deriveFont(Font.BOLD, 14f));
-                String text = "EE";
-                FontMetrics fm = g2.getFontMetrics();
-                g2.setColor(GOLD_LIGHT);
-                g2.drawString(text, x + (s - fm.stringWidth(text)) / 2, y + s / 2 + fm.getAscent() / 3);
-                g2.setColor(RED);
-                g2.fillRoundRect(x + 10, y + s - 11, Math.max(8, s - 20), 3, 3, 3);
-            }
-            finally { g2.dispose(); }
-        }
-    }
-
     private static final class PillLabel extends JLabel
     {
         private final Color accent;
@@ -1395,63 +1415,158 @@ public class EliteExilesPanel extends PluginPanel
     {
         private final String rank;
         private final Color accent;
-        RankEmblem(String rank, Color accent) { this.rank = rank == null ? "Recruit" : rank; this.accent = accent; }
+
+        RankEmblem(String rank, Color accent)
+        {
+            this.rank = rank == null ? "Recruit" : rank;
+            this.accent = accent;
+        }
+
         private int tier()
         {
             String r = rank.toLowerCase();
             String[] ladder = {"recruit", "corporal", "sergeant", "lieutenant", "captain", "major", "colonel", "brigadier", "general", "marshal", "king"};
-            for (int i = 0; i < ladder.length; i++) if (r.contains(ladder[i])) return i;
+            for (int i = 0; i < ladder.length; i++)
+            {
+                if (r.contains(ladder[i]))
+                {
+                    return i;
+                }
+            }
             return 0;
         }
-        @Override protected void paintComponent(Graphics g)
+
+        @Override
+        protected void paintComponent(Graphics g)
         {
             Graphics2D g2 = (Graphics2D) g.create();
             try
             {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int w = getWidth(), h = getHeight();
+                int w = getWidth();
+                int h = getHeight();
+                int cx = w / 2;
                 int t = tier();
-                Path2D shield = new Path2D.Float();
-                shield.moveTo(w * .16, h * .12);
-                shield.lineTo(w * .84, h * .12);
-                shield.lineTo(w * .78, h * .68);
-                shield.lineTo(w * .50, h * .90);
-                shield.lineTo(w * .22, h * .68);
-                shield.closePath();
-                g2.setPaint(new GradientPaint(0, 0, new Color(45, 37, 18), w, h, new Color(10, 12, 17)));
-                g2.fill(shield);
-                g2.setColor(accent);
-                g2.setStroke(new BasicStroke(1.6f));
-                g2.draw(shield);
 
-                int bars = Math.max(1, Math.min(5, 1 + t / 2));
-                for (int i = 0; i < bars; i++)
+                g2.setColor(PANEL_3);
+                g2.fillRoundRect(2, 2, Math.max(1, w - 5), Math.max(1, h - 5), 12, 12);
+                g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 85));
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(2, 2, Math.max(1, w - 5), Math.max(1, h - 5), 12, 12);
+
+                g2.setColor(GOLD_LIGHT);
+                g2.fillRoundRect(9, 7, Math.max(6, w - 18), 3, 3, 3);
+
+                if (t <= 2)
                 {
-                    int y = (int)(h * .63) - i * 5;
-                    int span = 8 + i * 2;
-                    g2.setColor(i == bars - 1 ? GOLD_LIGHT : accent);
-                    g2.fillRoundRect(w / 2 - span / 2, y, span, 2, 2, 2);
+                    drawChevrons(g2, cx, 20, t + 1);
                 }
-                if (t >= 8)
+                else if (t == 3 || t == 4)
                 {
-                    Polygon crown = new Polygon();
-                    crown.addPoint(w / 2 - 11, 15);
-                    crown.addPoint(w / 2 - 7, 7);
-                    crown.addPoint(w / 2, 13);
-                    crown.addPoint(w / 2 + 7, 7);
-                    crown.addPoint(w / 2 + 11, 15);
-                    crown.addPoint(w / 2 + 9, 20);
-                    crown.addPoint(w / 2 - 9, 20);
-                    g2.setColor(GOLD_LIGHT);
-                    g2.fillPolygon(crown);
+                    int bars = t == 3 ? 1 : 2;
+                    for (int i = 0; i < bars; i++)
+                    {
+                        int x = cx - ((bars - 1) * 6) + i * 12 - 3;
+                        g2.setColor(GOLD_LIGHT);
+                        g2.fillRoundRect(x, 17, 6, 21, 3, 3);
+                        g2.setColor(accent);
+                        g2.drawRoundRect(x, 17, 6, 21, 3, 3);
+                    }
                 }
-                String initials = rank.isBlank() ? "R" : rank.substring(0, Math.min(2, rank.length())).toUpperCase();
-                g2.setFont(getFont().deriveFont(Font.BOLD, 10f));
+                else if (t == 5 || t == 6)
+                {
+                    Polygon diamond = new Polygon();
+                    diamond.addPoint(cx, 15);
+                    diamond.addPoint(cx + 11, 27);
+                    diamond.addPoint(cx, 39);
+                    diamond.addPoint(cx - 11, 27);
+                    g2.setColor(t == 6 ? GOLD_LIGHT : accent);
+                    g2.fillPolygon(diamond);
+                    g2.setColor(t == 6 ? accent : GOLD_LIGHT);
+                    g2.drawPolygon(diamond);
+                    if (t == 6)
+                    {
+                        g2.drawLine(cx - 18, 27, cx - 11, 27);
+                        g2.drawLine(cx + 11, 27, cx + 18, 27);
+                    }
+                }
+                else if (t >= 7 && t <= 9)
+                {
+                    int stars = t - 6;
+                    int spacing = 13;
+                    int startX = cx - ((stars - 1) * spacing) / 2;
+                    for (int i = 0; i < stars; i++)
+                    {
+                        drawStar(g2, startX + i * spacing, 27, 6, i == stars - 1 ? GOLD_LIGHT : accent);
+                    }
+                }
+                else
+                {
+                    drawCrown(g2, cx, 27);
+                }
+
+                String shortRank = rankShort(rank);
+                Font baseFont = getFont() == null ? new Font(Font.SANS_SERIF, Font.PLAIN, 12) : getFont();
+                g2.setFont(baseFont.deriveFont(Font.BOLD, 7.5f));
                 FontMetrics fm = g2.getFontMetrics();
-                g2.setColor(WHITE);
-                g2.drawString(initials, (w - fm.stringWidth(initials)) / 2, (int)(h * .53));
+                g2.setColor(MUTED);
+                g2.drawString(shortRank, Math.max(3, cx - fm.stringWidth(shortRank) / 2), h - 7);
             }
-            finally { g2.dispose(); }
+            finally
+            {
+                g2.dispose();
+            }
+        }
+
+        private static void drawChevrons(Graphics2D g2, int cx, int startY, int count)
+        {
+            g2.setStroke(new BasicStroke(2.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            for (int i = 0; i < count; i++)
+            {
+                int y = startY + i * 7;
+                g2.setColor(i == count - 1 ? GOLD_LIGHT : GOLD);
+                g2.drawLine(cx - 11, y, cx, y + 6);
+                g2.drawLine(cx, y + 6, cx + 11, y);
+            }
+        }
+
+        private static void drawStar(Graphics2D g2, int cx, int cy, int radius, Color color)
+        {
+            Polygon star = new Polygon();
+            for (int i = 0; i < 10; i++)
+            {
+                double angle = -Math.PI / 2 + i * Math.PI / 5;
+                double r = (i & 1) == 0 ? radius : radius * 0.43;
+                star.addPoint((int)Math.round(cx + Math.cos(angle) * r), (int)Math.round(cy + Math.sin(angle) * r));
+            }
+            g2.setColor(color);
+            g2.fillPolygon(star);
+        }
+
+        private static void drawCrown(Graphics2D g2, int cx, int cy)
+        {
+            Polygon crown = new Polygon();
+            crown.addPoint(cx - 15, cy + 8);
+            crown.addPoint(cx - 12, cy - 7);
+            crown.addPoint(cx - 4, cy);
+            crown.addPoint(cx, cy - 11);
+            crown.addPoint(cx + 4, cy);
+            crown.addPoint(cx + 12, cy - 7);
+            crown.addPoint(cx + 15, cy + 8);
+            g2.setColor(GOLD_LIGHT);
+            g2.fillPolygon(crown);
+            g2.setColor(GOLD);
+            g2.drawPolygon(crown);
+        }
+
+        private static String rankShort(String value)
+        {
+            if (value == null || value.isBlank())
+            {
+                return "REC";
+            }
+            String upper = value.trim().toUpperCase();
+            return upper.length() <= 4 ? upper : upper.substring(0, 4);
         }
     }
 

@@ -8,12 +8,13 @@ import net.runelite.client.config.ConfigItem;
 public interface EliteExilesCompanionConfig extends Config
 {
     String GROUP = "eliteexilescompanion";
+    String PRODUCTION_BRIDGE_URL = "https://elite-exiles-coach.tail0d6194.ts.net";
 
     @ConfigItem(
         keyName = "coachIntegration",
         name = "Enable Coach Integration",
-        description = "Optional Elite Exiles Discord coach connection. OFF by default. No Elite Exiles network requests are made while this setting is disabled.",
-        warning = "This optional feature connects to a third-party Elite Exiles server not controlled or verified by the RuneLite developers. When you link, it sends your OSRS display name and one-time link code. If Live session sync is enabled, it also sends skill levels, skill XP, total XP, session XP, and session start time. Your IP address is visible to the server as part of the network connection. No Elite Exiles data is sent while this setting is off.",
+        description = "Optional Elite Exiles Discord coach connection. OFF by default. When enabled, linking sends your OSRS display name and one-time link code; optional Live session sync also sends skill levels/XP, total XP, session XP, and session start time. No Elite Exiles network requests are made while this setting is disabled.",
+        warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
         position = 0
     )
     default boolean coachIntegration()
@@ -24,12 +25,13 @@ public interface EliteExilesCompanionConfig extends Config
     @ConfigItem(
         keyName = "bridgeUrl",
         name = "Coach bridge URL",
-        description = "Address used only when Coach Integration is enabled. Remote addresses must use HTTPS. Localhost HTTP is allowed for same-PC testing.",
+        description = "Elite Exiles production coach endpoint. Managed automatically for normal Plugin Hub users.",
+        hidden = true,
         position = 1
     )
     default String bridgeUrl()
     {
-        return "http://127.0.0.1:47621";
+        return PRODUCTION_BRIDGE_URL;
     }
 
     @ConfigItem(
