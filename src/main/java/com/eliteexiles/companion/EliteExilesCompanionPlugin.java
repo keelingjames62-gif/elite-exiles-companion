@@ -3,11 +3,9 @@ package com.eliteexiles.companion;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.inject.Provides;
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.net.URI;
+import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +27,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.ImageUtil;
 
 @PluginDescriptor(
     name = "Elite Exiles Companion",
@@ -41,6 +40,7 @@ public class EliteExilesCompanionPlugin extends Plugin
     @Inject private ClientToolbar clientToolbar;
     @Inject private EliteExilesBridgeClient bridge;
     @Inject private EliteExilesCompanionConfig config;
+    @Inject private ConfigManager configManager;
     @Inject private ScheduledExecutorService scheduler;
 
     private EliteExilesPanel panel;
@@ -65,12 +65,16 @@ public class EliteExilesCompanionPlugin extends Plugin
     @Override
     protected void startUp()
     {
+        migrateBridgeUrl();
+
         panel = new EliteExilesPanel();
         panel.setController(this);
 
+        final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
+
         navButton = NavigationButton.builder()
             .tooltip("Elite Exiles Companion")
-            .icon(makeIcon())
+            .icon(icon)
             .priority(8)
             .panel(panel)
             .build();
@@ -95,6 +99,62 @@ public class EliteExilesCompanionPlugin extends Plugin
 
         pendingLoginInit = client.getGameState() == GameState.LOGGED_IN;
         backgroundTask = scheduler.scheduleAtFixedRate(this::backgroundTick, 3, 3, TimeUnit.SECONDS);
+    }
+
+    private void migrateBridgeUrl()
+    {
+        String saved = configManager.getConfiguration(EliteExilesCompanionConfig.GROUP, "bridgeUrl");
+        if (shouldMigrateBridgeUrl(saved))
+        {
+            configManager.setConfiguration(
+                EliteExilesCompanionConfig.GROUP,
+                "bridgeUrl",
+                EliteExilesCompanionConfig.PRODUCTION_BRIDGE_URL);
+        }
+    }
+
+    static boolean shouldMigrateBridgeUrl(String value)
+    {
+        return !isValidHttpsBridgeOrigin(value);
+    }
+
+    static boolean isValidHttpsBridgeOrigin(String value)
+    {
+        if (value == null || value.isBlank())
+        {
+            return false;
+        }
+
+        try
+        {
+            String trimmed = value.trim();
+            while (trimmed.endsWith("/"))
+            {
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+
+            URI uri = URI.create(trimmed);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            if (!"https".equals(scheme) || host.isBlank())
+            {
+                return false;
+            }
+            if (uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null)
+            {
+                return false;
+            }
+            String path = uri.getPath();
+            if (path != null && !path.isBlank() && !"/".equals(path))
+            {
+                return false;
+            }
+            return uri.getPort() == -1 || uri.getPort() == 443;
+        }
+        catch (IllegalArgumentException ex)
+        {
+            return false;
+        }
     }
 
     @Override
@@ -308,6 +368,72 @@ public class EliteExilesCompanionPlugin extends Plugin
             this::handleBridgeError);
     }
 
+    void runDiagnosticsFromPanel()
+    {
+        if (!coachEnabled())
+        {
+            panel.setLocalMode();
+            return;
+        }
+        if (!bridge.isLinked())
+        {
+            panel.setDisconnected("Link the Discord Coach first. Safe diagnostics verify the authenticated connection without changing progression state.");
+            return;
+        }
+        if (currentRsn == null || currentRsn.isBlank())
+        {
+            panel.setError("Log into the Discord-linked OSRS account before running diagnostics so the RSN binding can be verified.");
+            return;
+        }
+
+        final long started = System.nanoTime();
+        final String nonce = "ee-" + Long.toUnsignedString(System.nanoTime(), 36);
+        panel.setBusy("RUNNING SAFE READ-ONLY DIAGNOSTICS…");
+
+        bridge.health(
+            health -> {
+                if (!isExpectedHealth(health))
+                {
+                    handleBridgeError("Bridge health response did not match the Elite Exiles protocol.");
+                    return;
+                }
+
+                bridge.diagnostics(
+                    diagnostic -> {
+                        if (!isSafeDiagnosticResponse(diagnostic))
+                        {
+                            handleBridgeError("Authenticated diagnostics failed the no-mutation safety contract.");
+                            return;
+                        }
+                        String diagnosticRsn = stringValue(diagnostic, "rsn");
+                        if (!normalize(currentRsn).equals(normalize(diagnosticRsn)))
+                        {
+                            handleBridgeError("Authenticated diagnostic RSN did not match the logged-in RuneLite account.");
+                            return;
+                        }
+
+                        bridge.diagnosticsEcho(nonce,
+                            echo -> {
+                                if (!isSafeDiagnosticResponse(echo) || !nonce.equals(stringValue(echo, "echo")))
+                                {
+                                    handleBridgeError("Diagnostic POST/JSON echo failed the safety contract.");
+                                    return;
+                                }
+                                long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                                String bridgeId = stringValue(diagnostic, "bridgeId");
+                                int protocol = intValue(diagnostic, "protocol", 0);
+                                if (panel != null)
+                                {
+                                    panel.showDiagnosticsResult(bridgeId, protocol, elapsedMs);
+                                }
+                            },
+                            this::handleBridgeError);
+                    },
+                    this::handleBridgeError);
+            },
+            this::handleBridgeError);
+    }
+
     void unlinkFromPanel()
     {
         if (!coachEnabled())
@@ -424,6 +550,65 @@ public class EliteExilesCompanionPlugin extends Plugin
         return config != null && config.coachIntegration();
     }
 
+    private static boolean isExpectedHealth(JsonObject response)
+    {
+        return response != null
+            && booleanValue(response, "ok", false)
+            && "elite-exiles-runelite-bridge".equals(stringValue(response, "service"))
+            && intValue(response, "protocol", 0) >= 4;
+    }
+
+    private static boolean isSafeDiagnosticResponse(JsonObject response)
+    {
+        return response != null
+            && booleanValue(response, "ok", false)
+            && booleanValue(response, "authenticated", false)
+            && booleanValue(response, "readOnly", false)
+            && !booleanValue(response, "stateMutation", true)
+            && "elite-exiles-runelite-bridge".equals(stringValue(response, "service"))
+            && intValue(response, "protocol", 0) >= 4;
+    }
+
+    private static boolean booleanValue(JsonObject object, String key, boolean fallback)
+    {
+        try
+        {
+            return object != null && object.has(key) && !object.get(key).isJsonNull()
+                ? object.get(key).getAsBoolean()
+                : fallback;
+        }
+        catch (Exception ignored)
+        {
+            return fallback;
+        }
+    }
+
+    private static String stringValue(JsonObject object, String key)
+    {
+        try
+        {
+            return object != null && object.has(key) && !object.get(key).isJsonNull()
+                ? object.get(key).getAsString()
+                : "";
+        }
+        catch (Exception ignored)
+        {
+            return "";
+        }
+    }
+
+    private static int intValue(JsonObject object, String key, int fallback)
+    {
+        try
+        {
+            return object != null && object.has(key) ? object.get(key).getAsInt() : fallback;
+        }
+        catch (Exception ignored)
+        {
+            return fallback;
+        }
+    }
+
     private static String normalize(String s)
     {
         return s == null ? "" : s.toLowerCase().replaceAll("[^a-z0-9]", "");
@@ -448,29 +633,6 @@ public class EliteExilesCompanionPlugin extends Plugin
             if (c == ' ') cap = true;
         }
         return out.toString();
-    }
-
-    private static BufferedImage makeIcon()
-    {
-        BufferedImage image = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = image.createGraphics();
-        try
-        {
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setColor(new Color(10, 12, 17));
-            g.fillOval(1, 1, 30, 30);
-            g.setColor(new Color(217, 180, 74));
-            g.drawOval(2, 2, 28, 28);
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
-            g.drawString("EE", 7, 21);
-            g.setColor(new Color(141, 32, 40));
-            g.fillRect(7, 24, 18, 2);
-        }
-        finally
-        {
-            g.dispose();
-        }
-        return image;
     }
 
     private static final class LiveSkill
