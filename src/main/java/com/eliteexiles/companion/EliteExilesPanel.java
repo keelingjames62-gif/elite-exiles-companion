@@ -14,6 +14,7 @@ import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
@@ -30,6 +31,20 @@ import net.runelite.client.util.LinkBrowser;
 
 public class EliteExilesPanel extends EliteExilesPanelViews
 {
+    private final JScrollPane outerScroll = new JScrollPane();
+
+    private static final class ScrollState
+    {
+        private final int outer;
+        private final Map<String, Integer> pages;
+
+        private ScrollState(int outer, Map<String, Integer> pages)
+        {
+            this.outer = outer;
+            this.pages = pages;
+        }
+    }
+
     public EliteExilesPanel()
     {
         super(false);
@@ -82,12 +97,12 @@ public class EliteExilesPanel extends EliteExilesPanelViews
         actions.add(unlinkButton);
         root.add(actions);
 
-        JScrollPane outer = new JScrollPane(root);
-        outer.setBorder(null);
-        outer.getViewport().setBackground(BG);
-        outer.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        outer.getVerticalScrollBar().setUnitIncrement(18);
-        add(outer, BorderLayout.CENTER);
+        outerScroll.setViewportView(root);
+        outerScroll.setBorder(null);
+        outerScroll.getViewport().setBackground(BG);
+        outerScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        outerScroll.getVerticalScrollBar().setUnitIncrement(18);
+        add(outerScroll, BorderLayout.CENTER);
 
         joinDiscordButton.addActionListener(e -> LinkBrowser.browse(DISCORD_INVITE_URL));
         linkButton.addActionListener(e -> submitLinkCode());
@@ -177,6 +192,14 @@ public class EliteExilesPanel extends EliteExilesPanelViews
     }
 
     @Override
+    protected void rebuildCoach(JsonObject d)
+    {
+        super.rebuildCoach(d);
+        coachInput.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        coachInput.setFont(coachInput.getFont().deriveFont(Font.PLAIN, 16f));
+    }
+
+    @Override
     protected void requestSessionPlan(int minutes)
     {
         sendCoachQuestion(
@@ -246,15 +269,15 @@ public class EliteExilesPanel extends EliteExilesPanelViews
     {
         JPanel bubble = new RoundedPanel(background, who.equals("YOU") ? PURPLE : BORDER, 12);
         bubble.setLayout(new BoxLayout(bubble, BoxLayout.Y_AXIS));
-        bubble.add(text(who, 9, who.equals("YOU") ? PURPLE_LIGHT : GOLD, Font.BOLD));
-        bubble.add(vGap(3));
-        JTextArea messageArea = wrap(message, foreground, 12);
-        messageArea.setRows(rowsFor(message, 30, 120));
+        bubble.add(text(who, 12, who.equals("YOU") ? PURPLE_LIGHT : GOLD, Font.BOLD));
+        bubble.add(vGap(5));
+        JTextArea messageArea = wrap(message, foreground, 16);
+        messageArea.setRows(rowsFor(message, 22, 120));
         bubble.add(messageArea);
         bubble.setAlignmentX(Component.LEFT_ALIGNMENT);
         bubble.setMaximumSize(new Dimension(Integer.MAX_VALUE, 2200));
         coachThread.add(bubble);
-        coachThread.add(vGap(6));
+        coachThread.add(vGap(9));
         while (coachThread.getComponentCount() > MAX_COACH_THREAD_COMPONENTS)
         {
             coachThread.remove(0);
@@ -263,6 +286,36 @@ public class EliteExilesPanel extends EliteExilesPanelViews
         coachThread.revalidate();
         coachThread.repaint();
         scrollPageToBottom("COACH");
+    }
+
+    private ScrollState captureScrollState()
+    {
+        Map<String, Integer> values = new LinkedHashMap<>();
+        for (Map.Entry<String, JScrollPane> entry : pageScrolls.entrySet())
+        {
+            values.put(entry.getKey(), entry.getValue().getVerticalScrollBar().getValue());
+        }
+        return new ScrollState(outerScroll.getVerticalScrollBar().getValue(), values);
+    }
+
+    private static void restoreScrollBar(JScrollBar bar, int value)
+    {
+        int min = bar.getMinimum();
+        int max = Math.max(min, bar.getMaximum() - bar.getVisibleAmount());
+        bar.setValue(Math.max(min, Math.min(max, value)));
+    }
+
+    private void restoreScrollState(ScrollState state)
+    {
+        if (state == null) return;
+        SwingUtilities.invokeLater(() -> {
+            restoreScrollBar(outerScroll.getVerticalScrollBar(), state.outer);
+            for (Map.Entry<String, Integer> entry : state.pages.entrySet())
+            {
+                JScrollPane scroll = pageScrolls.get(entry.getKey());
+                if (scroll != null) restoreScrollBar(scroll.getVerticalScrollBar(), entry.getValue());
+            }
+        });
     }
 
     private void scrollPageToBottom(String page)
@@ -281,6 +334,7 @@ public class EliteExilesPanel extends EliteExilesPanelViews
     public void updateLiveSnapshot(String rsn, long sessionXp, Map<String, Integer> skillLevels)
     {
         SwingUtilities.invokeLater(() -> {
+            ScrollState scrollState = captureScrollState();
             String incoming = rsn == null ? "" : rsn;
             long xp = Math.max(0L, sessionXp);
             if (!incoming.equalsIgnoreCase(sessionRsn) || xp < localSessionXp)
@@ -302,6 +356,7 @@ public class EliteExilesPanel extends EliteExilesPanelViews
                 rebuildLocalProfile();
                 rebuildLocalHq();
             }
+            restoreScrollState(scrollState);
         });
     }
 
@@ -393,6 +448,7 @@ public class EliteExilesPanel extends EliteExilesPanelViews
     public void updateDashboard(JsonObject response)
     {
         SwingUtilities.invokeLater(() -> {
+            ScrollState scrollState = captureScrollState();
             JsonObject d = response != null && response.has("dashboard") && response.get("dashboard").isJsonObject()
                 ? response.getAsJsonObject("dashboard") : response;
             if (d == null || !d.has("member"))
@@ -430,6 +486,7 @@ public class EliteExilesPanel extends EliteExilesPanelViews
             rebuildCoach(d);
             rebuildPlan(d);
             rebuildClan(d);
+            restoreScrollState(scrollState);
         });
     }
 
