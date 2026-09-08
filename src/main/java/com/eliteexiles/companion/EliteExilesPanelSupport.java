@@ -30,6 +30,7 @@ import javax.swing.JButton;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JComponent;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -75,7 +76,7 @@ abstract class EliteExilesPanelSupport extends PluginPanel
     protected final JPanel linkCard = card(PURPLE);
     protected final JTextField linkCode = new JTextField();
     protected final JButton joinDiscordButton = button("JOIN ELITE EXILES DISCORD", PURPLE);
-    protected final JButton linkButton = button("CONNECT COACH", PURPLE);
+    protected final JButton linkButton = button("CONNECT ELITE EXILES", PURPLE);
 
     protected final JPanel profileHost = transparent(new BorderLayout());
     protected final JPanel contentHost = transparent(new CardLayout());
@@ -87,9 +88,13 @@ abstract class EliteExilesPanelSupport extends PluginPanel
     protected final JPanel coach = vertical();
     protected final JPanel plan = vertical();
     protected final JPanel clan = vertical();
-    protected final JPanel coachThread = vertical();
-    protected final JTextField coachInput = new JTextField();
-    protected final JButton askCoachButton = button("ASK COACH", PURPLE);
+    protected final JComboBox<String> groupActivityInput = new JComboBox<>(new String[] {
+        "Barrows", "Moons of Peril", "King Black Dragon", "Dagannoth Kings", "God Wars Learners",
+        "Entry-mode ToA", "Pest Control", "Tempoross", "Wintertodt", "Guardians of the Rift",
+        "Clan Skilling Session", "Slayer / Wilderness Slayer", "LMS / PK Learners", "Wilderness Trip", "Quest / Unlock Help"
+    });
+    protected final JTextField groupWorldInput = new JTextField();
+    protected final JButton hostGroupButton = button("HOST THIS", PURPLE);
 
     protected final JButton refreshButton = button("REFRESH", PURPLE);
     protected final JButton checkinButton = button("CHECK-IN", GREEN);
@@ -102,8 +107,6 @@ abstract class EliteExilesPanelSupport extends PluginPanel
     protected long localSessionXp = 0L;
     protected long sessionStartedAt = System.currentTimeMillis();
     protected String sessionRsn = "";
-    protected String coachSubject = "";
-    protected static final int MAX_COACH_THREAD_COMPONENTS = 24; // 12 bubbles + spacers; bounded for long RuneLite sessions.
 
     protected EliteExilesPanelSupport(boolean wrap)
     {
@@ -304,7 +307,11 @@ abstract class EliteExilesPanelSupport extends PluginPanel
 
     protected static JButton navButton(String title)
     {
-        PremiumButton b = new PremiumButton(title, PURPLE, glyphFor(title));
+        // COMPETE is the only tab whose full label plus glyph can exceed the narrow
+        // RuneLite sidebar cell. Keep the exact same font and button styling, but
+        // render COMPETE text-only so the full word remains legible at normal width.
+        String glyph = "COMPETE".equals(title) ? "" : glyphFor(title);
+        PremiumButton b = new PremiumButton(title, PURPLE, glyph);
         b.setFont(b.getFont().deriveFont(Font.BOLD, 10.5f));
         return b;
     }
@@ -425,6 +432,19 @@ abstract class EliteExilesPanelSupport extends PluginPanel
         if (days > 0) return "in " + days + "d " + (hours % 24) + "h";
         if (hours > 0) return "in " + hours + "h " + (minutes % 60) + "m";
         return "in " + Math.max(1, minutes) + "m";
+    }
+
+    protected static String timeAgo(long at)
+    {
+        if (at <= 0L) return "recently";
+        long delta = Math.max(0L, System.currentTimeMillis() - at);
+        long minutes = delta / 60_000L;
+        long hours = minutes / 60L;
+        long days = hours / 24L;
+        if (days > 0) return days + "d ago";
+        if (hours > 0) return hours + "h ago";
+        if (minutes > 0) return minutes + "m ago";
+        return "just now";
     }
 
 
@@ -588,11 +608,21 @@ abstract class EliteExilesPanelSupport extends PluginPanel
             g2.drawLine(5,1,Math.max(5,getWidth()-6),1);
             if (isEnabled())
             {
-                GlyphIcon icon=new GlyphIcon(glyph, active?WHITE:(accent.equals(PURPLE)?PURPLE_LIGHT:accent),11);
-                FontMetrics fm=g2.getFontMetrics(getFont()); int textW=fm.stringWidth(getText()); int total=icon.getIconWidth()+5+textW;
-                int x=Math.max(5,(getWidth()-total)/2); int y=(getHeight()-icon.getIconHeight())/2;
-                icon.paintIcon(this,g2,x,y); g2.setFont(getFont()); g2.setColor(getForeground());
-                g2.drawString(getText(),x+icon.getIconWidth()+5,(getHeight()+fm.getAscent()-fm.getDescent())/2);
+                boolean showGlyph = glyph != null && !glyph.isEmpty();
+                GlyphIcon icon = showGlyph ? new GlyphIcon(glyph, active?WHITE:(accent.equals(PURPLE)?PURPLE_LIGHT:accent),11) : null;
+                FontMetrics fm=g2.getFontMetrics(getFont());
+                int textW=fm.stringWidth(getText());
+                int iconW=showGlyph ? icon.getIconWidth() : 0;
+                int gap=showGlyph ? 5 : 0;
+                int total=iconW+gap+textW;
+                int x=Math.max(4,(getWidth()-total)/2);
+                if (showGlyph)
+                {
+                    int y=(getHeight()-icon.getIconHeight())/2;
+                    icon.paintIcon(this,g2,x,y);
+                }
+                g2.setFont(getFont()); g2.setColor(getForeground());
+                g2.drawString(getText(),x+iconW+gap,(getHeight()+fm.getAscent()-fm.getDescent())/2);
             }
             else
             {

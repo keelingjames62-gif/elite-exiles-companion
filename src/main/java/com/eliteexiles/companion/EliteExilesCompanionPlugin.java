@@ -14,11 +14,12 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import javax.swing.SwingUtilities;
 import javax.inject.Inject;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
-import net.runelite.api.clan.ClanChannel;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.StatChanged;
@@ -32,11 +33,12 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.Text;
 
 @PluginDescriptor(
     name = "Elite Exiles Companion",
-    description = "Exile HQ: local session tracking plus optional Elite Exiles Coach Chat, goal planning, EE progression, Pet Hunt status and clan events.",
-    tags = {"clan", "progression", "goals", "discord", "coach", "stats", "qol", "planner"}
+    description = "Exile HQ: local session tracking plus optional Elite Exiles progression, GROUP finder, SOTW competition, EE progression, Pet Hunt status and clan events.",
+    tags = {"clan", "progression", "discord", "lfg", "competition", "sotw", "stats", "qol"}
 )
 public class EliteExilesCompanionPlugin extends Plugin
 {
@@ -60,13 +62,12 @@ public class EliteExilesCompanionPlugin extends Plugin
     private volatile long lastDashboardPull;
     private volatile long lastLivePush;
     private volatile long lastUiRefresh;
-    private volatile long lastMembershipSync;
-    private volatile String lastClanName = "";
-    private volatile String lastGuestClanName = "";
+    private volatile boolean dashboardPullInFlight;
     private volatile int bridgeProtocol;
-    private static final String COACH_COMMAND = "!coach";
-    private static final String ASK_COACH_COMMAND = "!askcoach";
-    private static final long MEMBERSHIP_HEARTBEAT_MS = 5 * 60_000L;
+    private static final String GROUP_COMMAND = "!group";
+    private static final long ACTIVE_UI_REFRESH_MS = 30_000L;
+    private static final long LIVE_PUSH_INTERVAL_MS = 60_000L;
+    private static final int BACKGROUND_TICK_SECONDS = 30;
 
     @Provides
     EliteExilesCompanionConfig provideConfig(ConfigManager configManager)
@@ -88,8 +89,7 @@ public class EliteExilesCompanionPlugin extends Plugin
             .panel(panel)
             .build();
         clientToolbar.addNavigation(navButton);
-        chatCommandManager.registerCommand(COACH_COMMAND, (message, value) -> { }, this::coachCommandInput);
-        chatCommandManager.registerCommand(ASK_COACH_COMMAND, (message, value) -> { }, this::coachCommandInput);
+        chatCommandManager.registerCommand(GROUP_COMMAND, (message, value) -> { }, this::groupCommandInput);
 
         bridgeProtocol = 0;
         if (coachEnabled())
@@ -99,14 +99,15 @@ public class EliteExilesCompanionPlugin extends Plugin
                 panel.setBusy("Connecting Exile HQ…");
                 pullDashboard();
             }
-            else panel.setDisconnected("Coach Integration is enabled. Join Discord, run /runelitelink, then paste the code above.");
+            else panel.setDisconnected("Elite Exiles Sync is enabled. Join Discord, run /runelitelink, then paste the code above.");
         }
         else panel.setLocalMode();
 
         pendingLoginInit = client.getGameState() == GameState.LOGGED_IN;
-        // Fifteen-second housekeeping is enough because login/stat events update immediately.
-        // This keeps idle CPU/network work low while preserving a current session clock.
-        backgroundTask = scheduler.scheduleAtFixedRate(this::backgroundTick, 5, 15, TimeUnit.SECONDS);
+        // Login/stat events drive visible session changes. Background work only maintains
+        // optional server sync, so keep it slow and use fixed delay to avoid task bunching.
+        backgroundTask = scheduler.scheduleWithFixedDelay(
+            this::backgroundTick, 10, BACKGROUND_TICK_SECONDS, TimeUnit.SECONDS);
     }
 
     private void migrateBridgeUrl()
@@ -141,16 +142,13 @@ public class EliteExilesCompanionPlugin extends Plugin
     protected void shutDown()
     {
         if (backgroundTask != null) { backgroundTask.cancel(true); backgroundTask = null; }
-        chatCommandManager.unregisterCommand(COACH_COMMAND);
-        chatCommandManager.unregisterCommand(ASK_COACH_COMMAND);
+        chatCommandManager.unregisterCommand(GROUP_COMMAND);
         if (navButton != null) { clientToolbar.removeNavigation(navButton); navButton = null; }
         liveSkills.clear();
         panel = null;
         currentRsn = null;
-        lastClanName = "";
-        lastGuestClanName = "";
-        lastMembershipSync = 0L;
         bridgeProtocol = 0;
+        dashboardPullInFlight = false;
     }
 
     @Subscribe
@@ -189,7 +187,6 @@ public class EliteExilesCompanionPlugin extends Plugin
         }
         if (coachEnabled() && bridge.isLinked())
         {
-            maybeSyncMembership(true);
             pushLive();
             pullDashboard();
         }
@@ -202,11 +199,49 @@ public class EliteExilesCompanionPlugin extends Plugin
         liveSkills.put(skillLabel(event.getSkill()), new LiveSkill(event.getLevel(), event.getXp()));
         try { currentTotalXp = client.getOverallExperience(); } catch (Exception ignored) { }
         long now = System.currentTimeMillis();
-        if (panel != null && now - lastUiRefresh >= 1_000L)
+        if (panel != null && now - lastUiRefresh >= ACTIVE_UI_REFRESH_MS)
         {
             lastUiRefresh = now;
             panel.updateLiveSnapshot(currentRsn, Math.max(0L, currentTotalXp - sessionStartXp), snapshotLevels());
         }
+    }
+
+    @Subscribe
+    public void onChatMessage(ChatMessage event)
+    {
+        if (event == null || event.getType() == null) return;
+        if (event.getType() == ChatMessageType.CLAN_CHAT)
+        {
+            applyEliteExilesChatStyle(event);
+            return;
+        }
+        if (event.getType() != ChatMessageType.CLAN_MESSAGE) return;
+        if (!coachEnabled() || !bridge.isLinked() || !supportsExileHqProtocol()) return;
+        String plain = Text.removeTags(event.getMessage() == null ? "" : event.getMessage()).replaceAll("\\s+", " ").trim();
+        if (!isPotentialClanActivity(plain)) return;
+        bridge.sendClanBroadcast(plain, ignored -> { }, ignored -> { });
+    }
+
+    private void applyEliteExilesChatStyle(ChatMessage event)
+    {
+        if (!coachEnabled() || !bridge.isLinked() || event.getMessageNode() == null) return;
+
+        // Local-only, minimal identity treatment: keep RuneLite/Jagex username and
+        // message rendering completely native and only tint the existing Elite Exiles
+        // clan-channel label. Ordinary clan conversation is never uploaded.
+        String sender = event.getMessageNode().getSender();
+        if (!"eliteexiles".equals(normalize(Text.removeTags(sender == null ? "" : sender)))) return;
+        event.getMessageNode().setSender("<col=8f00ff>Elite Exiles</col>");
+        client.refreshChat();
+    }
+
+    private static boolean isPotentialClanActivity(String message)
+    {
+        String lower = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        return lower.contains("received") || lower.contains("obtained") || lower.contains("drop") || lower.contains("loot")
+            || lower.contains("pet") || lower.contains("collection log") || lower.contains("combat task")
+            || lower.contains("combat achievement") || lower.contains("personal best") || lower.contains("quest")
+            || lower.contains("level") || lower.contains("player kill") || lower.contains("pked") || lower.contains("killed by");
     }
 
     @Subscribe
@@ -215,7 +250,7 @@ public class EliteExilesCompanionPlugin extends Plugin
         if (!EliteExilesCompanionConfig.GROUP.equals(event.getGroup()) || panel == null) return;
         if (!coachEnabled()) { bridgeProtocol = 0; panel.setLocalMode(); return; }
         if (bridge.isLinked()) { bridgeProtocol = 0; panel.setBusy("Connecting Exile HQ…"); pullDashboard(); }
-        else panel.setDisconnected("Coach Integration is enabled. Join Discord, run /runelitelink, then paste the code above.");
+        else panel.setDisconnected("Elite Exiles Sync is enabled. Join Discord, run /runelitelink, then paste the code above.");
     }
 
     void linkFromPanel(String code)
@@ -231,59 +266,66 @@ public class EliteExilesCompanionPlugin extends Plugin
             bridge.link(cleanedCode, currentRsn, response -> {
                 updateBridgeProtocol(response);
                 if (panel != null) panel.updateDashboard(response);
-                maybeSyncMembership(true);
                 pushLive();
             }, this::handleBridgeError);
         }, this::handleBridgeError);
     }
 
-    void refreshCoachFromPanel()
+    void refreshProgressionFromPanel()
     {
         if (!coachEnabled()) { panel.setLocalMode(); return; }
         if (!bridge.isLinked()) { panel.setDisconnected("Use /runelitelink in Discord to connect."); return; }
         if (!supportsExileHqProtocol()) { panel.setError(protocolUpgradeMessage()); return; }
-        panel.setBusy("Refreshing Jagex + Coach…");
-        bridge.refreshCoach(response -> { if (panel != null) panel.updateDashboard(response); }, this::handleBridgeError);
+        panel.setBusy("Refreshing Jagex + Elite Exiles progression…");
+        bridge.refreshProgression(response -> { if (panel != null) panel.updateDashboard(response); }, this::handleBridgeError);
     }
 
-    void askCoachFromPanel(String question, String subject)
-    {
-        if (!coachEnabled()) { if (panel != null) panel.showCoachError("Enable Coach Integration in plugin settings first."); return; }
-        if (!bridge.isLinked()) { if (panel != null) panel.showCoachError("Link the Discord Coach first with /runelitelink."); return; }
-        if (!supportsExileHqProtocol()) { if (panel != null) panel.showCoachError(protocolUpgradeMessage()); return; }
-        bridge.askCoach(question, subject,
-            response -> { if (panel != null) panel.showCoachAnswer(question, response); },
-            message -> { if (panel != null) panel.showCoachError(message); });
-    }
-
-    void requestClanAccessFromPanel()
+    void hostGroupFromPanel(String activity, int world)
     {
         if (!coachEnabled()) { if (panel != null) panel.setLocalMode(); return; }
-        if (!bridge.isLinked()) { if (panel != null) panel.setDisconnected("Link Discord first so the request is attached to the correct member and RSN."); return; }
+        if (!bridge.isLinked()) { if (panel != null) panel.setDisconnected("Use /runelitelink in Discord to connect."); return; }
         if (!supportsExileHqProtocol()) { if (panel != null) panel.setError(protocolUpgradeMessage()); return; }
-        if (panel != null) panel.setBusy("Refreshing Elite Exiles membership…");
-        syncMembershipNow(response -> {
-            if (panel != null) panel.updateDashboard(response);
-            bridge.requestClanAccess(request -> { if (panel != null) panel.updateDashboard(request); }, this::handleBridgeError);
-        }, this::handleBridgeError);
+        if (panel != null) panel.setBusy("Hosting Elite Exiles group…");
+        bridge.hostGroup(activity, world,
+            response -> { if (panel != null) panel.updateDashboard(response); },
+            message -> { if (panel != null) { panel.setError(message); panel.hostGroupButton.setEnabled(true); } });
     }
 
-    private boolean coachCommandInput(ChatInput input, String value)
+    void joinGroupFromPanel(String groupId)
     {
-        String raw = value == null ? "" : value.trim();
-        int split = raw.indexOf(' ');
-        String question = split < 0 ? "" : raw.substring(split + 1).trim();
-        if (question.length() > 400) question = question.substring(0, 400);
-        final String safeQuestion = question;
+        if (!supportsExileHqProtocol()) { if (panel != null) panel.setError(protocolUpgradeMessage()); return; }
+        if (panel != null) panel.setBusy("Joining clan group…");
+        bridge.joinGroup(groupId, response -> { if (panel != null) panel.updateDashboard(response); }, this::handleBridgeError);
+    }
+
+    void startGroupFromPanel(String groupId)
+    {
+        if (!supportsExileHqProtocol()) { if (panel != null) panel.setError(protocolUpgradeMessage()); return; }
+        if (panel != null) panel.setBusy("Starting clan group…");
+        bridge.startGroup(groupId, response -> { if (panel != null) panel.updateDashboard(response); }, this::handleBridgeError);
+    }
+
+    void leaveGroupFromPanel(String groupId)
+    {
+        if (!supportsExileHqProtocol()) { if (panel != null) panel.setError(protocolUpgradeMessage()); return; }
+        if (panel != null) panel.setBusy("Updating clan group…");
+        bridge.leaveGroup(groupId, response -> { if (panel != null) panel.updateDashboard(response); }, this::handleBridgeError);
+    }
+
+    void completeGroupFromPanel(String groupId)
+    {
+        if (!supportsExileHqProtocol()) { if (panel != null) panel.setError(protocolUpgradeMessage()); return; }
+        if (panel != null) panel.setBusy("Confirming GROUP completion…");
+        bridge.completeGroup(groupId, this::applyDashboardResponse, this::handleBridgeError);
+    }
+
+    private boolean groupCommandInput(ChatInput input, String value)
+    {
         SwingUtilities.invokeLater(() -> {
             if (navButton != null) clientToolbar.openPanel(navButton);
-            if (panel == null) return;
-            panel.openCoachPage();
-            if (safeQuestion.isBlank()) panel.showCoachCommandHelp();
-            else panel.askCoachFromCommand(safeQuestion);
+            if (panel != null) panel.openGroupPage();
         });
-        // RuneLite's ChatCommandManager consumes the input when this callback returns true,
-        // so !coach questions stay local and are never posted to the game chat channel.
+        // The local !group command opens the GROUP page and is consumed by RuneLite.
         return true;
     }
 
@@ -300,7 +342,7 @@ public class EliteExilesCompanionPlugin extends Plugin
     void runDiagnosticsFromPanel()
     {
         if (!coachEnabled()) { panel.setLocalMode(); return; }
-        if (!bridge.isLinked()) { panel.setDisconnected("Link the Discord Coach first."); return; }
+        if (!bridge.isLinked()) { panel.setDisconnected("Link Elite Exiles first."); return; }
         if (currentRsn == null || currentRsn.isBlank()) { panel.setError("Log into the linked OSRS account before running diagnostics."); return; }
         final long started = System.nanoTime();
         final String nonce = "ee-" + Long.toUnsignedString(System.nanoTime(), 36);
@@ -331,65 +373,33 @@ public class EliteExilesCompanionPlugin extends Plugin
     {
         if (panel == null) return;
         long now = System.currentTimeMillis();
-        // Keep the live duration feeling current without rebuilding Swing cards every scheduler tick.
-        // StatChanged/login events still update immediately; this is only a low-frequency idle refresh.
-        if (now - lastUiRefresh >= 15_000L)
-        {
-            lastUiRefresh = now;
-            panel.updateLiveSnapshot(currentRsn, Math.max(0L, currentTotalXp - sessionStartXp), snapshotLevels());
-        }
         if (!coachEnabled() || !bridge.isLinked()) return;
-        int refreshSeconds = Math.max(30, config.refreshSeconds());
-        maybeSyncMembership(false);
-        if (config.autoSync() && currentRsn != null && now - lastLivePush >= 30_000L) pushLive();
+        int refreshSeconds = Math.max(60, config.refreshSeconds());
+        if (config.autoSync() && currentRsn != null && now - lastLivePush >= LIVE_PUSH_INTERVAL_MS) pushLive();
         if (now - lastDashboardPull >= refreshSeconds * 1000L) pullDashboard();
     }
 
-    private void maybeSyncMembership(boolean force)
-    {
-        if (!coachEnabled() || !bridge.isLinked() || currentRsn == null || currentRsn.isBlank()) return;
-        if (!supportsExileHqProtocol()) return;
-        String clanName = currentClanName(false);
-        String guestClanName = currentClanName(true);
-        long now = System.currentTimeMillis();
-        boolean changed = !normalize(clanName).equals(normalize(lastClanName))
-            || !normalize(guestClanName).equals(normalize(lastGuestClanName));
-        if (!force && !changed && now - lastMembershipSync < MEMBERSHIP_HEARTBEAT_MS) return;
-        lastMembershipSync = now;
-        lastClanName = clanName;
-        lastGuestClanName = guestClanName;
-        bridge.syncMembership(currentRsn, clanName, guestClanName,
-            response -> { if (panel != null) panel.updateDashboard(response); },
-            message -> { if (panel != null && changed) panel.setError(message); });
-    }
-
-    private void syncMembershipNow(java.util.function.Consumer<JsonObject> success, java.util.function.Consumer<String> failure)
-    {
-        if (!supportsExileHqProtocol()) { failure.accept(protocolUpgradeMessage()); return; }
-        if (currentRsn == null || currentRsn.isBlank()) { failure.accept("Log into the registered OSRS account first."); return; }
-        String clanName = currentClanName(false);
-        String guestClanName = currentClanName(true);
-        lastMembershipSync = System.currentTimeMillis();
-        lastClanName = clanName;
-        lastGuestClanName = guestClanName;
-        bridge.syncMembership(currentRsn, clanName, guestClanName, success, failure);
-    }
-
-    private String currentClanName(boolean guest)
-    {
-        try
-        {
-            ClanChannel channel = guest ? client.getGuestClanChannel() : client.getClanChannel();
-            return channel == null || channel.getName() == null ? "" : channel.getName().trim();
-        }
-        catch (Exception ignored) { return ""; }
-    }
 
     private void pullDashboard()
     {
-        if (!coachEnabled() || !bridge.isLinked()) return;
+        if (!coachEnabled() || !bridge.isLinked() || dashboardPullInFlight) return;
+        dashboardPullInFlight = true;
         lastDashboardPull = System.currentTimeMillis();
-        bridge.getDashboard(response -> { updateBridgeProtocol(response); if (panel != null) panel.updateDashboard(response); }, this::handleBridgeError);
+        bridge.getDashboard(
+            response -> {
+                dashboardPullInFlight = false;
+                applyDashboardResponse(response);
+            },
+            message -> {
+                dashboardPullInFlight = false;
+                handleBridgeError(message);
+            });
+    }
+
+    private void applyDashboardResponse(JsonObject response)
+    {
+        updateBridgeProtocol(response);
+        if (panel != null) panel.updateDashboard(response);
     }
 
     private void pushLive()
@@ -432,14 +442,14 @@ public class EliteExilesCompanionPlugin extends Plugin
 
     private boolean supportsExileHqProtocol()
     {
-        return bridgeProtocol >= 5;
+        return bridgeProtocol >= 6;
     }
 
     private String protocolUpgradeMessage()
     {
         return bridgeProtocol > 0
-            ? "Exile HQ features need bridge protocol 5; the connected bridge is protocol " + bridgeProtocol + ". Refresh again after the server update."
-            : "Exile HQ is still confirming the Coach bridge version. Wait a moment and refresh before using this feature.";
+            ? "HQ / GROUP / COMPETE features need bridge protocol 6; the connected bridge is protocol " + bridgeProtocol + ". Refresh again after the server update."
+            : "Exile HQ is still confirming the Elite Exiles bridge version. Wait a moment and refresh before using this feature.";
     }
 
     private void handleBridgeError(String message)

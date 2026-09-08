@@ -1,13 +1,9 @@
 package com.eliteexiles.companion;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.Font;
 import java.awt.GridLayout;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,7 +13,6 @@ import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
-import javax.swing.JTextArea;
 import net.runelite.client.util.LinkBrowser;
 
 /**
@@ -25,7 +20,7 @@ import net.runelite.client.util.LinkBrowser;
  *
  * This panel is intentionally informational/planning focused. It does not inject
  * game input, mark tiles, predict attacks, alter menus, or automate gameplay.
- * Optional network features remain behind the existing explicit Coach Integration
+ * Optional network features remain behind the existing explicit Elite Exiles Sync
  * setting and use only the authenticated Elite Exiles HTTPS bridge.
  */
 
@@ -69,8 +64,8 @@ public class EliteExilesPanel extends EliteExilesPanelViews
         root.add(vGap(6));
 
         pages.put("HQ", hq);
-        pages.put("COACH", coach);
-        pages.put("PLAN", plan);
+        pages.put("GROUP", coach);
+        pages.put("COMPETE", plan);
         pages.put("CLAN", clan);
         for (Map.Entry<String, JPanel> entry : pages.entrySet())
         {
@@ -107,12 +102,11 @@ public class EliteExilesPanel extends EliteExilesPanelViews
         joinDiscordButton.addActionListener(e -> LinkBrowser.browse(DISCORD_INVITE_URL));
         linkButton.addActionListener(e -> submitLinkCode());
         linkCode.addActionListener(e -> submitLinkCode());
-        refreshButton.addActionListener(e -> { if (controller != null) controller.refreshCoachFromPanel(); });
+        refreshButton.addActionListener(e -> { if (controller != null) controller.refreshProgressionFromPanel(); });
         checkinButton.addActionListener(e -> { if (controller != null) controller.checkInFromPanel(); });
         diagnosticsButton.addActionListener(e -> { if (controller != null) controller.runDiagnosticsFromPanel(); });
         unlinkButton.addActionListener(e -> { if (controller != null) controller.unlinkFromPanel(); });
-        askCoachButton.addActionListener(e -> submitCoachQuestion());
-        coachInput.addActionListener(e -> submitCoachQuestion());
+        hostGroupButton.addActionListener(e -> submitGroupHost());
 
         selectPage("HQ");
         setLocalMode();
@@ -123,24 +117,10 @@ public class EliteExilesPanel extends EliteExilesPanelViews
         this.controller = controller;
     }
 
-    public void openCoachPage()
+    public void openGroupPage()
     {
-        selectPage("COACH");
+        selectPage("GROUP");
     }
-
-    public void askCoachFromCommand(String question)
-    {
-        sendCoachQuestion(question, currentGoalSubject());
-    }
-
-    public void showCoachCommandHelp()
-    {
-        SwingUtilities.invokeLater(() -> {
-            selectPage("COACH");
-            addThreadBubble("COACH", "Type !coach followed by a specific OSRS question. The command is consumed locally and the answer appears here; it is not posted into game chat.", new Color(38, 33, 28), SILVER);
-        });
-    }
-
 
     private void submitLinkCode()
     {
@@ -152,140 +132,25 @@ public class EliteExilesPanel extends EliteExilesPanelViews
         controller.linkFromPanel(linkCode.getText());
     }
 
-    private void submitCoachQuestion()
+    private void submitGroupHost()
     {
-        String question = coachInput.getText() == null ? "" : coachInput.getText().trim();
-        sendCoachQuestion(question, coachSubject);
-    }
-
-    private void sendCoachQuestion(String question, String subject)
-    {
-        String clean = question == null ? "" : question.trim();
-        if (clean.length() < 2)
+        if (controller == null || !hostGroupButton.isEnabled()) return;
+        String activity = String.valueOf(groupActivityInput.getSelectedItem()).trim();
+        if (activity.length() < 2)
         {
-            setError("Type a specific OSRS question first.");
+            setError("Choose the activity you want to host first.");
             return;
         }
-        if (controller == null)
+        int world = 0;
+        String worldText = groupWorldInput.getText() == null ? "" : groupWorldInput.getText().trim();
+        if (!worldText.isBlank())
         {
-            return;
+            try { world = Integer.parseInt(worldText); }
+            catch (NumberFormatException ex) { setError("World must be a number from 301 to 599, or left blank."); return; }
+            if (world < 301 || world > 599) { setError("World must be from 301 to 599, or left blank."); return; }
         }
-        selectPage("COACH");
-        if (lastDashboard != null && !booleanValue(object(lastDashboard, "membership"), "verified", false))
-        {
-            addThreadBubble("COACH", "Coach access unlocks after Discord membership, staff approval, and current Elite Exiles in-game clan membership are verified. Use REQUEST CLAN ACCESS in the Clan tab.", PANEL_2, GOLD);
-            return;
-        }
-        askCoachButton.setEnabled(false);
-        coachInput.setEnabled(false);
-        addThreadBubble("YOU", clean, PANEL_3, WHITE);
-        controller.askCoachFromPanel(clean, subject == null ? "" : subject);
-    }
-
-    private String currentGoalSubject()
-    {
-        if (lastDashboard == null) return coachSubject;
-        JsonObject coachObj = object(lastDashboard, "coach");
-        String goal = str(coachObj, "personalGoal", "");
-        if (!goal.isBlank()) return goal;
-        return coachSubject;
-    }
-
-    @Override
-    protected void rebuildCoach(JsonObject d)
-    {
-        super.rebuildCoach(d);
-        coachInput.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        coachInput.setFont(coachInput.getFont().deriveFont(Font.PLAIN, 16f));
-    }
-
-    @Override
-    protected void requestSessionPlan(int minutes)
-    {
-        sendCoachQuestion(
-            "Build me a " + minutes + "-minute session plan for my current goal using my current stats. "
-                + "Prioritize the closest useful blocker or next step and keep the plan practical.",
-            currentGoalSubject());
-    }
-
-    @Override
-    protected void requestBlockerAnalysis()
-    {
-        sendCoachQuestion(
-            "What blockers or missing requirements should I handle for my current goal? "
-                + "Use my current stats, separate hard requirements from recommendations, and tell me the best next step.",
-            currentGoalSubject());
-    }
-
-    public void showCoachAnswer(String question, JsonObject response)
-    {
-        SwingUtilities.invokeLater(() -> {
-            String answer = str(response, "answer", "The Coach returned no answer text.");
-            coachSubject = str(response, "primaryEntity", coachSubject);
-            String answerMode = str(response, "mode", "").toLowerCase();
-            boolean aiUsed = booleanValue(response, "aiUsed", answerMode.contains("ai"));
-            boolean cached = booleanValue(response, "cached", false);
-            String coachLabel = aiUsed ? "COACH • AI ASSISTED" : (answerMode.contains("recent") ? "COACH • CONTEXT" : (cached ? "COACH • CACHED" : "COACH • TRUSTED SOURCES"));
-            addThreadBubble(coachLabel, answer, new Color(38, 33, 28), SILVER);
-            String note = str(response, "researchNote", "");
-            if (!note.isBlank()) addThreadBubble("SOURCE NOTE", note, PANEL_2, AMBER);
-            JsonArray sources = array(response, "sources");
-            if (sources.size() > 0)
-            {
-                StringBuilder sb = new StringBuilder("Sources: ");
-                int count = 0;
-                for (JsonElement e : sources)
-                {
-                    if (!e.isJsonObject()) continue;
-                    if (count++ > 0) sb.append(" • ");
-                    sb.append(str(e.getAsJsonObject(), "title", "OSRS source"));
-                    if (count >= 3) break;
-                }
-                addThreadBubble("RESEARCH", sb.toString(), PANEL_2, MUTED);
-            }
-            coachInput.setText("");
-            coachInput.setEnabled(true);
-            askCoachButton.setEnabled(true);
-            connection.setText("COACH READY");
-            connection.setForeground(GREEN);
-            coach.revalidate();
-            coach.repaint();
-        });
-    }
-
-    public void showCoachError(String message)
-    {
-        SwingUtilities.invokeLater(() -> {
-            addThreadBubble("COACH", message == null ? "Coach request failed." : message, PANEL_2, AMBER);
-            coachInput.setEnabled(true);
-            askCoachButton.setEnabled(true);
-            connection.setText("COACH ISSUE");
-            connection.setForeground(AMBER);
-        });
-    }
-
-    @Override
-    protected void addThreadBubble(String who, String message, Color background, Color foreground)
-    {
-        JPanel bubble = new RoundedPanel(background, who.equals("YOU") ? PURPLE : BORDER, 12);
-        bubble.setLayout(new BoxLayout(bubble, BoxLayout.Y_AXIS));
-        bubble.add(text(who, 12, who.equals("YOU") ? PURPLE_LIGHT : GOLD, Font.BOLD));
-        bubble.add(vGap(5));
-        JTextArea messageArea = wrap(message, foreground, 16);
-        messageArea.setRows(rowsFor(message, 22, 120));
-        bubble.add(messageArea);
-        bubble.setAlignmentX(Component.LEFT_ALIGNMENT);
-        bubble.setMaximumSize(new Dimension(Integer.MAX_VALUE, 2200));
-        coachThread.add(bubble);
-        coachThread.add(vGap(9));
-        while (coachThread.getComponentCount() > MAX_COACH_THREAD_COMPONENTS)
-        {
-            coachThread.remove(0);
-            if (coachThread.getComponentCount() > 0) coachThread.remove(0);
-        }
-        coachThread.revalidate();
-        coachThread.repaint();
-        scrollPageToBottom("COACH");
+        hostGroupButton.setEnabled(false);
+        controller.hostGroupFromPanel(activity, world);
     }
 
     private ScrollState captureScrollState()
@@ -334,10 +199,10 @@ public class EliteExilesPanel extends EliteExilesPanelViews
     public void updateLiveSnapshot(String rsn, long sessionXp, Map<String, Integer> skillLevels)
     {
         SwingUtilities.invokeLater(() -> {
-            ScrollState scrollState = captureScrollState();
             String incoming = rsn == null ? "" : rsn;
             long xp = Math.max(0L, sessionXp);
-            if (!incoming.equalsIgnoreCase(sessionRsn) || xp < localSessionXp)
+            boolean sessionChanged = !incoming.equalsIgnoreCase(sessionRsn) || xp < localSessionXp;
+            if (sessionChanged)
             {
                 sessionStartedAt = System.currentTimeMillis();
                 sessionRsn = incoming;
@@ -346,17 +211,21 @@ public class EliteExilesPanel extends EliteExilesPanelViews
             localSessionXp = xp;
             liveSkillLevels.clear();
             if (skillLevels != null) liveSkillLevels.putAll(skillLevels);
-            if (lastDashboard != null)
+
+            // Routine XP/stat events only update this lightweight model. Full HQ/profile
+            // Swing trees are rebuilt on account/session change or dashboard/user actions,
+            // not continuously while the player is skilling.
+            if (sessionChanged)
             {
-                rebuildProfile(lastDashboard);
-                rebuildHq(lastDashboard);
+                ScrollState scrollState = captureScrollState();
+                if (lastDashboard != null) rebuildHq(lastDashboard);
+                else
+                {
+                    rebuildLocalProfile();
+                    rebuildLocalHq();
+                }
+                restoreScrollState(scrollState);
             }
-            else
-            {
-                rebuildLocalProfile();
-                rebuildLocalHq();
-            }
-            restoreScrollState(scrollState);
         });
     }
 
@@ -371,24 +240,25 @@ public class EliteExilesPanel extends EliteExilesPanelViews
             lastDashboard = null;
             connection.setText("LOCAL MODE");
             connection.setForeground(GREEN);
-            statusDetail.setText("Coach Integration is off. Enable it in RuneLite plugin settings, then use /runelitelink below.");
+            statusDetail.setText("Elite Exiles Sync is off. Enable it in RuneLite plugin settings, then use /runelitelink below.");
             statusDetail.setForeground(MUTED);
             linkCard.setVisible(true);
             linkCode.setEnabled(false);
-            linkButton.setText("STEP 1: ENABLE COACH FIRST");
+            linkButton.setText("STEP 1: ENABLE SYNC FIRST");
             linkButton.setEnabled(false);
             refreshButton.setEnabled(false);
             checkinButton.setEnabled(false);
             diagnosticsButton.setEnabled(false);
             unlinkButton.setEnabled(false);
+            hostGroupButton.setEnabled(false);
             refreshButton.setVisible(false);
             checkinButton.setVisible(false);
             diagnosticsButton.setVisible(false);
             unlinkButton.setVisible(false);
             rebuildLocalProfile();
             rebuildLocalHq();
-            rebuildCoachUnlinked("Enable Coach Integration in plugin settings to use Coach Chat and synced recommendations.");
-            rebuildPlanUnlinked("Link Coach to turn your Elite Exiles goals into a clean NOW → NEXT → LATER plan.");
+            rebuildCoachUnlinked("Enable Elite Exiles Sync to use clan groups, competition, and synced progression.");
+            rebuildPlanUnlinked("Link Elite Exiles to load SOTW, weekly missions, and progression competition.");
             rebuildClanUnlinked();
         });
     }
@@ -411,7 +281,7 @@ public class EliteExilesPanel extends EliteExilesPanelViews
             statusDetail.setForeground(AMBER);
             if (linkCard.isVisible() && linkCode.isEnabled())
             {
-                linkButton.setText("CONNECT COACH");
+                linkButton.setText("CONNECT ELITE EXILES");
                 linkButton.setEnabled(true);
             }
         });
@@ -421,26 +291,27 @@ public class EliteExilesPanel extends EliteExilesPanelViews
     {
         SwingUtilities.invokeLater(() -> {
             lastDashboard = null;
-            connection.setText("COACH NOT LINKED");
+            connection.setText("ELITE EXILES NOT LINKED");
             connection.setForeground(PURPLE_LIGHT);
-            statusDetail.setText(message == null ? "Run /runelitelink in Discord, paste the code, then Connect Coach." : message);
+            statusDetail.setText(message == null ? "Run /runelitelink in Discord, paste the code, then connect Elite Exiles." : message);
             statusDetail.setForeground(MUTED);
             linkCard.setVisible(true);
             linkCode.setEnabled(true);
-            linkButton.setText("CONNECT COACH");
+            linkButton.setText("CONNECT ELITE EXILES");
             linkButton.setEnabled(true);
             refreshButton.setEnabled(false);
             checkinButton.setEnabled(false);
             diagnosticsButton.setEnabled(false);
             unlinkButton.setEnabled(false);
+            hostGroupButton.setEnabled(false);
             refreshButton.setVisible(false);
             checkinButton.setVisible(false);
             diagnosticsButton.setVisible(false);
             unlinkButton.setVisible(false);
             rebuildLocalProfile();
             rebuildLocalHq();
-            rebuildCoachUnlinked("Connect Coach above to ask account-aware OSRS questions directly inside RuneLite.");
-            rebuildPlanUnlinked("Connect Coach above to load goals, blockers, session plan, missions and roadmap.");
+            rebuildCoachUnlinked("Connect above to host and join progression-focused clan groups.");
+            rebuildPlanUnlinked("Connect above to load SOTW, weekly missions, and clan competition.");
             rebuildClanUnlinked();
         });
     }
@@ -453,30 +324,29 @@ public class EliteExilesPanel extends EliteExilesPanelViews
                 ? response.getAsJsonObject("dashboard") : response;
             if (d == null || !d.has("member"))
             {
-                setError("Coach dashboard was missing member data.");
+                setError("Elite Exiles dashboard was missing member data.");
                 return;
             }
             lastDashboard = d.deepCopy();
             JsonObject rl = object(d, "runelite");
-            JsonObject membership = object(d, "membership");
             long lastSeen = longValue(rl, "lastSeenAt", 0L);
             boolean fresh = lastSeen > 0 && System.currentTimeMillis() - lastSeen < 120_000L;
-            boolean verified = booleanValue(membership, "verified", false);
-            connection.setText(verified ? (fresh ? "VERIFIED EXILE • LIVE" : "VERIFIED EXILE") : "CLAN ACCESS CHECK");
-            connection.setForeground(verified ? GREEN : GOLD);
-            statusDetail.setText(verified
-                ? (fresh ? "Discord + Elite Exiles in-game membership verified." : "Membership verified. Refresh for the newest account snapshot.")
-                : membershipStatusLine(membership));
-            statusDetail.setForeground(verified ? GREEN : GOLD);
+            connection.setText(fresh ? "DISCORD LINKED • LIVE" : "DISCORD LINKED");
+            connection.setForeground(GREEN);
+            statusDetail.setText(fresh
+                ? "Companion access active. Your Discord link stays valid without a clan-rank or membership gate."
+                : "Companion access active. Refresh for the newest account snapshot.");
+            statusDetail.setForeground(GREEN);
             linkCard.setVisible(false);
             linkCode.setText("");
             linkCode.setEnabled(false);
-            linkButton.setText("CONNECT COACH");
+            linkButton.setText("CONNECT ELITE EXILES");
             linkButton.setEnabled(false);
-            refreshButton.setEnabled(verified);
-            checkinButton.setEnabled(verified);
+            refreshButton.setEnabled(true);
+            checkinButton.setEnabled(true);
             diagnosticsButton.setEnabled(true);
             unlinkButton.setEnabled(true);
+            hostGroupButton.setEnabled(true);
             refreshButton.setVisible(true);
             checkinButton.setVisible(true);
             diagnosticsButton.setVisible(true);

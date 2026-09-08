@@ -77,15 +77,15 @@ public class EliteExilesBridgeClient
         URI uri = URI.create(value);
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
-        if (host.isBlank()) throw new IllegalArgumentException("Coach bridge URL must contain a valid hostname.");
+        if (host.isBlank()) throw new IllegalArgumentException("Elite Exiles bridge URL must contain a valid hostname.");
         if (uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null)
-            throw new IllegalArgumentException("Coach bridge URL cannot contain credentials, a query string, or a fragment.");
+            throw new IllegalArgumentException("Elite Exiles bridge URL cannot contain credentials, a query string, or a fragment.");
         String path = uri.getPath();
         if (path != null && !path.isBlank() && !"/".equals(path))
-            throw new IllegalArgumentException("Coach bridge URL must be the server origin only, without an extra path.");
-        if (!"https".equals(scheme)) throw new IllegalArgumentException("Elite Exiles Coach bridge connections must use HTTPS.");
+            throw new IllegalArgumentException("Elite Exiles bridge URL must be the server origin only, without an extra path.");
+        if (!"https".equals(scheme)) throw new IllegalArgumentException("Elite Exiles bridge connections must use HTTPS.");
         if (uri.getPort() != -1 && uri.getPort() != 443)
-            throw new IllegalArgumentException("Coach bridge URLs must use the standard HTTPS port 443.");
+            throw new IllegalArgumentException("Elite Exiles bridge URLs must use the standard HTTPS port 443.");
         return value;
     }
 
@@ -134,36 +134,56 @@ public class EliteExilesBridgeClient
         guardedExecute("GET", "/api/v1/dashboard", null, true, success, failure);
     }
 
-    public void refreshCoach(Consumer<JsonObject> success, Consumer<String> failure)
+    public void refreshProgression(Consumer<JsonObject> success, Consumer<String> failure)
     {
-        guardedExecute("POST", "/api/v1/refresh-coach", new JsonObject(), true, success, failure);
+        guardedExecute("POST", "/api/v1/progression/refresh", new JsonObject(), true, success, failure);
     }
 
-    public void askCoach(String question, String subject, Consumer<JsonObject> success, Consumer<String> failure)
+    public void hostGroup(String activity, int world, Consumer<JsonObject> success, Consumer<String> failure)
     {
         JsonObject body = new JsonObject();
-        String q = question == null ? "" : question.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
-        if (q.length() > 400) q = q.substring(0, 400);
-        String s = subject == null ? "" : subject.trim();
-        if (s.length() > 120) s = s.substring(0, 120);
-        body.addProperty("question", q);
-        body.addProperty("subject", s);
-        guardedExecute("POST", "/api/v1/coach/ask", body, true, success, failure);
+        body.addProperty("activity", activity == null ? "" : activity.trim());
+        if (world >= 301 && world <= 599) body.addProperty("world", world);
+        guardedExecute("POST", "/api/v1/group/host", body, true, success, failure);
     }
 
-    public void syncMembership(String rsn, String clanName, String guestClanName, Consumer<JsonObject> success, Consumer<String> failure)
+    public void joinGroup(String groupId, Consumer<JsonObject> success, Consumer<String> failure)
     {
         JsonObject body = new JsonObject();
-        body.addProperty("rsn", rsn == null ? "" : rsn.trim());
-        body.addProperty("clanName", cleanClanName(clanName));
-        body.addProperty("guestClanName", cleanClanName(guestClanName));
-        guardedExecute("POST", "/api/v1/membership/sync", body, true, success, failure);
+        body.addProperty("groupId", groupId == null ? "" : groupId.trim());
+        guardedExecute("POST", "/api/v1/group/join", body, true, success, failure);
     }
 
-    public void requestClanAccess(Consumer<JsonObject> success, Consumer<String> failure)
+    public void startGroup(String groupId, Consumer<JsonObject> success, Consumer<String> failure)
     {
-        guardedExecute("POST", "/api/v1/membership/request", new JsonObject(), true, success, failure);
+        JsonObject body = new JsonObject();
+        body.addProperty("groupId", groupId == null ? "" : groupId.trim());
+        guardedExecute("POST", "/api/v1/group/start", body, true, success, failure);
     }
+
+    public void leaveGroup(String groupId, Consumer<JsonObject> success, Consumer<String> failure)
+    {
+        JsonObject body = new JsonObject();
+        body.addProperty("groupId", groupId == null ? "" : groupId.trim());
+        guardedExecute("POST", "/api/v1/group/leave", body, true, success, failure);
+    }
+
+    public void completeGroup(String groupId, Consumer<JsonObject> success, Consumer<String> failure)
+    {
+        JsonObject body = new JsonObject();
+        body.addProperty("groupId", groupId == null ? "" : groupId.trim());
+        guardedExecute("POST", "/api/v1/group/complete", body, true, success, failure);
+    }
+
+    public void sendClanBroadcast(String message, Consumer<JsonObject> success, Consumer<String> failure)
+    {
+        JsonObject body = new JsonObject();
+        String clean = message == null ? "" : message.replaceAll("[\\p{Cntrl}]", " ").replaceAll("\\s+", " ").trim();
+        if (clean.length() > 280) clean = clean.substring(0, 280);
+        body.addProperty("message", clean);
+        guardedExecute("POST", "/api/v1/activity/broadcast", body, true, success, failure);
+    }
+
 
     private static String cleanClanName(String value)
     {
@@ -200,12 +220,12 @@ public class EliteExilesBridgeClient
     private Request jsonRequest(String method, String path, JsonObject body, boolean authenticate)
     {
         if (!config.coachIntegration())
-            throw new IllegalStateException("Coach Integration is disabled. Enable it in the Elite Exiles Companion settings first.");
+            throw new IllegalStateException("Elite Exiles Sync is disabled. Enable it in the Elite Exiles Companion settings first.");
 
         Request.Builder builder = new Request.Builder()
             .url(baseUrl() + path)
             .header("Accept", "application/json")
-            .header("User-Agent", "Elite-Exiles-RuneLite-Companion/2.0.0");
+            .header("User-Agent", "Elite-Exiles-RuneLite-Companion/2.1.0");
 
         if (authenticate)
         {
@@ -230,7 +250,7 @@ public class EliteExilesBridgeClient
             @Override
             public void onFailure(Call call, IOException e)
             {
-                failure.accept("Coach bridge unreachable: " + safeMessage(e));
+                failure.accept("Elite Exiles bridge unreachable: " + safeMessage(e));
             }
 
             @Override
@@ -243,7 +263,7 @@ public class EliteExilesBridgeClient
                     try { obj = gson.fromJson(text, JsonObject.class); }
                     catch (Exception ex)
                     {
-                        failure.accept("Coach bridge returned an unreadable response (HTTP " + r.code() + ").");
+                        failure.accept("Elite Exiles bridge returned an unreadable response (HTTP " + r.code() + ").");
                         return;
                     }
                     if (!r.isSuccessful() || obj == null || (obj.has("ok") && !booleanValue(obj, "ok", false)))
@@ -257,7 +277,7 @@ public class EliteExilesBridgeClient
                 }
                 catch (Exception e)
                 {
-                    failure.accept("Could not process coach bridge response: " + safeMessage(e));
+                    failure.accept("Could not process Elite Exiles bridge response: " + safeMessage(e));
                 }
             }
         });

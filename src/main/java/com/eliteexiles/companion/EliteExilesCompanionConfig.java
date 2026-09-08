@@ -12,8 +12,8 @@ public interface EliteExilesCompanionConfig extends Config
 
     @ConfigItem(
         keyName = "coachIntegration",
-        name = "Enable Coach Integration",
-        description = "Optional Elite Exiles Discord Coach connection. OFF by default. Linking sends your OSRS display name and one-time link code; membership verification sends the names of your current normal and guest clan channels so the server can verify Elite Exiles access; Coach Chat sends questions you type and may include the resolved OSRS subject for follow-up continuity; optional Live session sync also sends skill levels/XP, total XP, session XP, and session start time. No Elite Exiles network requests are made while this setting is disabled.",
+        name = "Enable Elite Exiles Sync",
+        description = "Optional Elite Exiles connection. OFF by default. Linking sends your OSRS display name and one-time Discord link code. Once linked, Companion access does not depend on Discord roles, staff approval, or current clan membership. Qualifying native OSRS clan system broadcasts may be sent to build the shared clan activity feed; optional Live session sync sends skill levels/XP, total XP, session XP, and session start time for progression, SOTW, rank/emblem context, and clan features. Ordinary clan chat messages are never sent. No Elite Exiles network requests are made while this setting is disabled.",
         warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
         position = 0
     )
@@ -24,8 +24,8 @@ public interface EliteExilesCompanionConfig extends Config
 
     @ConfigItem(
         keyName = "bridgeUrl",
-        name = "Coach bridge URL",
-        description = "Elite Exiles production coach endpoint. Managed automatically for normal Plugin Hub users.",
+        name = "Elite Exiles bridge URL",
+        description = "Elite Exiles production clan endpoint. Managed automatically for normal Plugin Hub users.",
         hidden = true,
         position = 1
     )
@@ -37,7 +37,7 @@ public interface EliteExilesCompanionConfig extends Config
     @ConfigItem(
         keyName = "autoSync",
         name = "Live session sync",
-        description = "When Coach Integration is enabled and linked, send your current RSN, skill levels/XP, total XP, session XP and session start time to your Elite Exiles coach. This is optional and does not award EE Points by itself.",
+        description = "When Elite Exiles Sync is enabled and linked, send your current RSN, skill levels/XP, total XP, session XP and session start time for synced progression and clan competition. This is optional and does not award EE Points by itself.",
         position = 2
     )
     default boolean autoSync()
@@ -47,12 +47,12 @@ public interface EliteExilesCompanionConfig extends Config
 
     @ConfigItem(
         keyName = "refreshSeconds",
-        name = "Coach refresh seconds",
-        description = "How often the optional Coach Integration refreshes Exile HQ. Values below 30 seconds are treated as 30.",
+        name = "HQ refresh seconds",
+        description = "How often optional Elite Exiles Sync refreshes HQ. Values below 60 seconds are treated as 60.",
         position = 3
     )
     default int refreshSeconds()
     {
-        return 45;
+        return 90;
     }
 }
