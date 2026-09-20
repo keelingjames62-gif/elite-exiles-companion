@@ -183,7 +183,7 @@ public class EliteExilesCompanionPlugin extends Plugin
         if (panel != null)
         {
             lastUiRefresh = System.currentTimeMillis();
-            panel.updateLiveSnapshot(currentRsn, Math.max(0L, currentTotalXp - sessionStartXp), snapshotLevels());            
+            panel.updateLiveSnapshot(currentRsn, Math.max(0L, currentTotalXp - sessionStartXp), snapshotLevels());
             // RuneLite can switch to the logged-in character's configuration
             // profile after this plugin has already started. Re-read the sync
             // setting here so the link controls do not remain stuck in the
