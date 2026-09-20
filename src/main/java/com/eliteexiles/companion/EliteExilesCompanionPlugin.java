@@ -184,6 +184,25 @@ public class EliteExilesCompanionPlugin extends Plugin
         {
             lastUiRefresh = System.currentTimeMillis();
             panel.updateLiveSnapshot(currentRsn, Math.max(0L, currentTotalXp - sessionStartXp), snapshotLevels());
+
+            // RuneLite can switch to the logged-in character's configuration
+            // profile after this plugin has already started. Re-read the sync
+            // setting here so the link controls do not remain stuck in the
+            // pre-login LOCAL MODE state.
+            if (!coachEnabled())
+            {
+                bridgeProtocol = 0;
+                panel.setLocalMode();
+            }
+            else if (bridge.isLinked())
+            {
+                bridgeProtocol = 0;
+                panel.setBusy("Connecting Exile HQ…");
+            }
+            else
+            {
+                panel.setDisconnected("Elite Exiles Sync is enabled. Join Discord, run /runelitelink, then paste the code above.");
+            }
         }
         if (coachEnabled() && bridge.isLinked())
         {
