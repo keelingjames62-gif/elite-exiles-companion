@@ -243,7 +243,10 @@ public class EliteExilesPanel extends EliteExilesPanelViews
             statusDetail.setText("Elite Exiles Sync is off. Enable it in RuneLite plugin settings, then use /runelitelink below.");
             statusDetail.setForeground(MUTED);
             linkCard.setVisible(true);
-            linkCode.setEnabled(false);
+            // Keep the one-time code field usable while Local Mode is active.
+            // Enabling Sync still requires the explicit RuneLite config toggle,
+            // and the Connect button remains disabled until that happens.
+            linkCode.setEnabled(true);
             linkButton.setText("STEP 1: ENABLE SYNC FIRST");
             linkButton.setEnabled(false);
             refreshButton.setEnabled(false);
