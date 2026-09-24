@@ -1,3 +1,9 @@
+## 2.1.1 — Link-code entry reliability
+
+- Keeps the one-time link-code field editable while Local Mode is displayed, so a code can be pasted before enabling Elite Exiles Sync.
+- The Connect button and all network activity remain disabled until the user explicitly enables Elite Exiles Sync in RuneLite settings.
+- Bumps the Plugin Hub version so existing `2.1.0` installations receive the corrected build.
+
 ## 2.1.0 — COMPETE label legibility
 
 - Kept the existing 10.5pt navigation font and single-row layout.
